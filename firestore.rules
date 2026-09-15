@@ -1,0 +1,28 @@
+rules_version = '2';
+
+// Reglas de acceso para el proyecto "Monitor Artifact Ruteo Diario".
+//
+// - Cualquiera puede LEER (dashboard general y pantalla del chofer, sin login).
+// - Nadie puede crear ni borrar rutas o paradas desde el navegador: eso
+//   solo lo hace el script de carga diaria (cargar_ruteo.py), que usa
+//   una cuenta de servicio y no pasa por estas reglas.
+// - Desde el navegador (chofer marcando una entrega) solo se puede
+//   modificar el estado y la hora de actualización de una parada,
+//   nada más.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /rutas/{rutaId} {
+      allow read: if true;
+      allow write: if false;
+
+      match /paradas/{paradaId} {
+        allow read: if true;
+        allow create, delete: if false;
+        allow update: if request.resource.data.diff(resource.data)
+                          .affectedKeys()
+                          .hasOnly(['estado', 'horaActualizacion']);
+      }
+    }
+  }
+}

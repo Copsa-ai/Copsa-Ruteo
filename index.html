@@ -195,7 +195,9 @@
             '<div class="sc-time">' + (p.horaTexto || '') + '</div>' +
             '<div class="badge ' + p.estado + '">' + labelFor(p.estado) + '</div>' +
           '</div>' +
-          '<div class="srow-detail"><b>Producto:</b> ' + (p.producto || '—') + '<br><b>Remito:</b> ' + (p.remito || '—') + '</div>';
+          '<div class="srow-detail"><b>Producto:</b> ' + (p.producto || '—') + '<br><b>Remito:</b> ' + (p.remito || '—') +
+            (p.fotoRemito ? '<br><a href="' + p.fotoRemito + '" target="_blank" rel="noopener">📷 Ver foto del remito</a>' : '') +
+          '</div>';
         row.addEventListener('click', () => { openStops[p._id] = !openStops[p._id]; render(); });
         table.appendChild(row);
       });
@@ -261,4 +263,3 @@
 
 </body>
 </html>
-

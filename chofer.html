@@ -90,6 +90,11 @@
 
   .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(10px);background:var(--ink);color:#fff;font-size:13px;font-weight:600;padding:10px 18px;border-radius:99px;opacity:0;transition:all .25s;pointer-events:none;z-index:20;}
   .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+  .m-foto{margin:4px 0 16px;}
+  .foto-label{display:block;text-align:center;padding:12px 0;border:1.5px dashed var(--line);border-radius:12px;font-size:13.5px;color:var(--ink-soft);font-weight:600;}
+  .foto-label:active{background:var(--pending-bg);}
+  #fotoPreview{display:none;max-width:100%;border-radius:10px;margin-top:10px;}
 </style>
 </head>
 <body>
@@ -136,6 +141,11 @@
     <div class="m-client">Parada</div>
     <h2 id="mName"></h2>
     <div class="m-addr" id="mAddr"></div>
+    <div class="m-foto">
+      <label class="foto-label" id="fotoLabel">📷 Adjuntar foto del remito (opcional)</label>
+      <input type="file" accept="image/*" capture="environment" id="fotoInput" style="display:none;">
+      <img id="fotoPreview" alt="">
+    </div>
     <button class="btn-ok" id="btnEntregado">Marcar entregado</button>
     <button class="btn-warn" id="btnProblema">Reportar problema</button>
     <button class="btn-cancel" id="btnCancel">Cancelar</button>
@@ -147,10 +157,14 @@
   import {
     getFirestore, collection, query, where, onSnapshot, doc, updateDoc, serverTimestamp
   } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+  import {
+    getStorage, ref as storageRef, uploadBytes, getDownloadURL
+  } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-storage.js";
   import { firebaseConfig, PIN_CHOFER } from "./firebase-config.js";
 
   const app = initializeApp(firebaseConfig);
   const db = getFirestore(app);
+  const storage = getStorage(app);
 
   function hoyLocal(){
     const d = new Date();
@@ -195,14 +209,46 @@
     if(pin.length === 4) setTimeout(entrarSiPinValido, 150);
   });
 
-  let yaEntro = false;
-  try { yaEntro = localStorage.getItem('ruteo_pin_ok') === '1'; } catch(e) {}
-  if(yaEntro) iniciarRutas();
+  // ---------- Link directo a un viaje (?viaje=841) ----------
+  // Si el link trae el número de viaje, nos salteamos el PIN y la lista:
+  // vamos directo a esa ruta puntual. Sin el parámetro, funciona como
+  // siempre (PIN + lista completa) — ese es el link "general".
+  const paramsUrl = new URLSearchParams(location.search);
+  const viajeParam = (paramsUrl.get('viaje') || '').trim();
+  const modoDirecto = viajeParam !== '';
 
   // ---------- Rutas del día ----------
   let rutasActuales = {}; // rutaId -> {meta, paradas: {id: data}}
   let rutaAbierta = null;
   let paradasUnsub = null;
+
+  if(modoDirecto){
+    document.getElementById('backToRoutes').style.visibility = 'hidden';
+    iniciarDirecto(viajeParam);
+  } else {
+    let yaEntro = false;
+    try { yaEntro = localStorage.getItem('ruteo_pin_ok') === '1'; } catch(e) {}
+    if(yaEntro) iniciarRutas();
+  }
+
+  function iniciarDirecto(nroViaje){
+    const rutaId = FECHA_HOY + '_' + nroViaje;
+    const rutaRef = doc(db, 'rutas', rutaId);
+    onSnapshot(rutaRef, snap => {
+      if(!snap.exists()){
+        showView('stops');
+        document.getElementById('routeTitle').textContent = 'Viaje ' + nroViaje;
+        document.getElementById('stopsList').innerHTML =
+          '<div class="sinrutas">Todavía no hay datos cargados para este viaje hoy. Probá de nuevo en un rato.</div>';
+        return;
+      }
+      if(!rutasActuales[rutaId]) rutasActuales[rutaId] = { meta: snap.data(), paradas: {} };
+      else rutasActuales[rutaId].meta = snap.data();
+
+      if(rutaAbierta !== rutaId) abrirRuta(rutaId);
+      else document.getElementById('routeTitle').textContent = 'Viaje ' + (snap.data().nroViaje || nroViaje);
+    });
+  }
 
   function iniciarRutas(){
     document.getElementById('fechaHoy').textContent =
@@ -253,6 +299,7 @@
   }
 
   document.getElementById('backToRoutes').addEventListener('click', () => {
+    if(modoDirecto) return; // link personalizado: no hay lista a la que volver
     if(paradasUnsub){ paradasUnsub(); paradasUnsub = null; }
     rutaAbierta = null;
     showView('route');
@@ -295,9 +342,29 @@
   // ---------- Modal marcar entrega ----------
   const backdrop = document.getElementById('modalBackdrop');
   let paradaActual = null;
+  let fotoSeleccionada = null;
+
+  const fotoInput = document.getElementById('fotoInput');
+  const fotoPreview = document.getElementById('fotoPreview');
+  const fotoLabel = document.getElementById('fotoLabel');
+
+  fotoLabel.addEventListener('click', () => fotoInput.click());
+  fotoInput.addEventListener('change', () => {
+    const file = fotoInput.files[0];
+    if(!file) return;
+    fotoSeleccionada = file;
+    fotoPreview.src = URL.createObjectURL(file);
+    fotoPreview.style.display = 'block';
+    fotoLabel.textContent = '📷 Foto lista — tocá para cambiarla';
+  });
 
   function abrirModal(p){
     paradaActual = p;
+    fotoSeleccionada = null;
+    fotoInput.value = '';
+    fotoPreview.style.display = 'none';
+    fotoPreview.src = '';
+    fotoLabel.textContent = '📷 Adjuntar foto del remito (opcional)';
     document.getElementById('mName').textContent = p.cliente;
     document.getElementById('mAddr').textContent = p.direccion;
     backdrop.classList.add('active');
@@ -309,9 +376,32 @@
   async function marcar(estado){
     if(!paradaActual || !rutaAbierta) return;
     const ref = doc(db, 'rutas', rutaAbierta, 'paradas', paradaActual.id);
+    const datos = { estado, horaActualizacion: serverTimestamp() };
+    let fotoFallo = false;
+
+    // La foto es opcional: si Storage todavía no está activado (o falla la
+    // subida por cualquier motivo), no dejamos que eso bloquee marcar la
+    // entrega — seguimos igual, solo sin la foto.
+    if(fotoSeleccionada){
+      try{
+        const ext = (fotoSeleccionada.name.split('.').pop() || 'jpg').toLowerCase();
+        const path = 'remitos/' + rutaAbierta + '/' + paradaActual.id + '_' + Date.now() + '.' + ext;
+        const sRef = storageRef(storage, path);
+        await uploadBytes(sRef, fotoSeleccionada);
+        datos.fotoRemito = await getDownloadURL(sRef);
+      }catch(err){
+        fotoFallo = true;
+        console.error('No se pudo subir la foto', err);
+      }
+    }
+
     try{
-      await updateDoc(ref, { estado, horaActualizacion: serverTimestamp() });
-      mostrarToast(estado === 'entregado' ? 'Marcado como entregado ✓' : 'Reportado como problema');
+      await updateDoc(ref, datos);
+      if(fotoFallo){
+        mostrarToast('Entrega marcada — la foto no se pudo subir');
+      } else {
+        mostrarToast(estado === 'entregado' ? 'Marcado como entregado ✓' : 'Reportado como problema');
+      }
     }catch(err){
       mostrarToast('No se pudo guardar, probá de nuevo');
       console.error(err);

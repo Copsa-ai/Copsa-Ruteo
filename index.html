@@ -58,8 +58,11 @@
   .route{border:1px solid var(--line);border-radius:14px;overflow:hidden;}
   .route-head{display:flex;align-items:center;gap:14px;padding:15px 18px;cursor:pointer;}
   .route-head:hover{background:#fafbfc;}
-  .route-name{font-size:14.5px;font-weight:700;flex:0 0 130px;}
-  .route-meta{font-size:12px;color:var(--ink-soft);flex:0 0 220px;}
+  .route-name{font-size:14.5px;font-weight:700;flex:0 0 90px;}
+  .route-expreso{font-size:12px;color:var(--ink-soft);flex:0 0 190px;padding-right:10px;}
+  .route-meta{font-size:12px;color:var(--ink-soft);flex:0 0 190px;line-height:1.55;}
+  .route-meta .patente{display:block;font-weight:700;color:var(--ink);}
+  .route-meta .chofer{display:block;}
   .route-bar-wrap{flex:1;display:flex;align-items:center;gap:10px;}
   .route-bar{flex:1;height:7px;background:var(--pending-bg);border-radius:99px;overflow:hidden;}
   .route-bar-fill{height:100%;background:var(--ok);border-radius:99px;transition:width .4s;}
@@ -87,7 +90,7 @@
   @media (max-width:640px){
     .stats{grid-template-columns:repeat(2,1fr);}
     .route-head{flex-wrap:wrap;}
-    .route-name,.route-meta{flex:1 1 auto;}
+    .route-name,.route-expreso,.route-meta{flex:1 1 auto;}
   }
 </style>
 </head>
@@ -174,7 +177,11 @@
       head.className = 'route-head';
       head.innerHTML =
         '<div class="route-name">Viaje ' + (info.meta.nroViaje || '?') + '</div>' +
-        '<div class="route-meta">' + (info.meta.vehiculo || '—') + ' · ' + (info.meta.chofer || 'Sin asignar') + '</div>' +
+        '<div class="route-expreso">' + (info.meta.expreso || '') + '</div>' +
+        '<div class="route-meta">' +
+          '<span class="patente">' + (info.meta.vehiculo || '—') + '</span>' +
+          '<span class="chofer">' + (info.meta.chofer || 'Sin asignar') + '</span>' +
+        '</div>' +
         '<div class="route-bar-wrap">' +
           '<div class="route-bar"><div class="route-bar-fill" style="width:' + (paradas.length ? (100*done/paradas.length) : 0) + '%"></div></div>' +
           '<div class="route-count">' + done + '/' + paradas.length + '</div>' +

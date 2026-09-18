@@ -152,8 +152,12 @@
   // estado en memoria de todo lo que vamos escuchando
   let rutas = {}; // rutaId -> {meta, paradas: {paradaId: data}}
 
-  function labelFor(estado){
-    if(estado === 'entregado') return 'Entregado';
+  function labelFor(estado, tipo){
+    if(estado === 'entregado'){
+      if(tipo === 'retiro') return 'Retirado';
+      if(tipo === 'devolucion') return 'Devolución OK';
+      return 'Entregado';
+    }
     if(estado === 'problema') return 'Con problema';
     return 'Pendiente';
   }
@@ -219,7 +223,7 @@
             '<div class="sc-name">' + p.cliente + '</div>' +
             '<div class="sc-addr">' + p.direccion + '</div>' +
             '<div class="sc-time">' + (p.horaTexto || '') + '</div>' +
-            '<div class="badge ' + p.estado + '">' + labelFor(p.estado) + '</div>' +
+            '<div class="badge ' + p.estado + '">' + labelFor(p.estado, p.tipo) + '</div>' +
           '</div>' +
           '<div class="srow-detail"><b>Producto:</b> ' + (p.producto || '—') + '<br><b>Remito:</b> ' + (p.remito || '—') +
             (p.fotoRemito ? '<br><a href="' + p.fotoRemito + '" target="_blank" rel="noopener">📷 Ver foto del remito</a>' : '') +

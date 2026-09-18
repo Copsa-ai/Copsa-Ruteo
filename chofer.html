@@ -115,9 +115,9 @@
 
 <div class="view" id="view-route">
   <div class="topline" id="fechaHoy"></div>
-  <h1>¿Cuál es tu ruta hoy?</h1>
+  <h1>Viajes con paradas pendientes</h1>
   <div id="routeList"></div>
-  <div class="sinrutas" id="sinRutas" style="display:none;">Todavía no hay rutas cargadas para hoy.</div>
+  <div class="sinrutas" id="sinRutas" style="display:none;">No queda ningún viaje con paradas pendientes 🎉</div>
 </div>
 
 <div class="view" id="view-stops">
@@ -355,23 +355,59 @@
       (p.horario ? p.horario + ' · ' : '') + 'Viaje ' + p.nroViaje);
   }
 
+  const VENTANA_DIAS_PENDIENTES = 90; // hasta cuántos días atrás busca este panel
+  const paradasUnsubsGeneral = {};
+
   function iniciarRutas(){
     document.getElementById('fechaHoy').textContent =
-      new Date().toLocaleDateString('es-AR', {weekday:'long', day:'2-digit', month:'2-digit'});
+      'Últimos ' + VENTANA_DIAS_PENDIENTES + ' días · se actualiza en vivo';
     showView('route');
 
-    const q = query(collection(db, 'rutas'), where('fecha', '==', FECHA_HOY));
+    const fechaLimite = fechaMenosDias(VENTANA_DIAS_PENDIENTES);
+    const q = query(collection(db, 'rutas'), where('fecha', '>=', fechaLimite));
     onSnapshot(q, snap => {
-      rutasActuales = {};
-      snap.forEach(d => { rutasActuales[d.id] = { meta: d.data(), paradas: {} }; });
+      const idsActuales = new Set();
+      snap.forEach(d => {
+        idsActuales.add(d.id);
+        if(!rutasActuales[d.id]) rutasActuales[d.id] = { meta: d.data(), paradas: {} };
+        else rutasActuales[d.id].meta = d.data();
+        if(!paradasUnsubsGeneral[d.id]) suscribirParadasGeneral(d.id);
+      });
+      Object.keys(rutasActuales).forEach(id => {
+        if(!idsActuales.has(id)){
+          if(paradasUnsubsGeneral[id]){ paradasUnsubsGeneral[id](); delete paradasUnsubsGeneral[id]; }
+          delete rutasActuales[id];
+        }
+      });
       renderRouteList();
     });
   }
 
+  function suscribirParadasGeneral(rutaId){
+    const paradasRef = collection(db, 'rutas', rutaId, 'paradas');
+    paradasUnsubsGeneral[rutaId] = onSnapshot(paradasRef, ps => {
+      const paradas = {};
+      ps.forEach(p => paradas[p.id] = p.data());
+      if(rutasActuales[rutaId]) rutasActuales[rutaId].paradas = paradas;
+      renderRouteList();
+    });
+  }
+
+  function rutaTienePendientes(r){
+    const paradas = Object.values(r.paradas || {});
+    if(paradas.length === 0) return true; // todavía no cargó las paradas, se muestra por si acaso
+    return paradas.some(p => !ESTADOS_COMPLETOS.includes(p.estado));
+  }
+
   function renderRouteList(){
     const list = document.getElementById('routeList');
-    const ids = Object.keys(rutasActuales).sort((a,b) =>
-      (rutasActuales[a].meta.nroViaje || "").localeCompare(rutasActuales[b].meta.nroViaje || "", undefined, {numeric:true}));
+    const ids = Object.keys(rutasActuales)
+      .filter(id => rutaTienePendientes(rutasActuales[id]))
+      .sort((a,b) => {
+        const porFecha = (rutasActuales[b].meta.fecha || "").localeCompare(rutasActuales[a].meta.fecha || "");
+        if(porFecha !== 0) return porFecha; // más reciente primero
+        return (rutasActuales[a].meta.nroViaje || "").localeCompare(rutasActuales[b].meta.nroViaje || "", undefined, {numeric:true});
+      });
 
     document.getElementById('sinRutas').style.display = ids.length === 0 ? 'block' : 'none';
     list.innerHTML = "";
@@ -380,7 +416,7 @@
       const card = document.createElement('div');
       card.className = 'route-card';
       card.innerHTML =
-        '<div><div class="rt-name">Viaje ' + (meta.nroViaje || '?') + '</div>' +
+        '<div><div class="rt-name">' + (meta.fecha || '') + ' · Viaje ' + (meta.nroViaje || '?') + '</div>' +
         '<div class="rt-meta">' + (meta.vehiculo || '—') + ' · ' + (meta.chofer || 'Sin asignar') + '</div></div>' +
         '<div class="chev">›</div>';
       card.addEventListener('click', () => abrirRuta(id));
@@ -410,8 +446,12 @@
     showView('route');
   });
 
-  function labelFor(estado){
-    if(estado === 'entregado') return 'Entregado';
+  function labelFor(estado, tipo){
+    if(estado === 'entregado'){
+      if(tipo === 'retiro') return 'Retirado';
+      if(tipo === 'devolucion') return 'Devolución OK';
+      return 'Entregado';
+    }
     if(estado === 'problema') return 'Con problema';
     return 'Pendiente';
   }
@@ -444,7 +484,7 @@
           '<div class="stop-addr">' + p.direccion + '</div>' +
           (extra ? '<div class="stop-horario">' + extra + '</div>' : '') +
         '</div>' +
-        '<div class="badge ' + (p.estado || 'pendiente') + '">' + labelFor(p.estado) + '</div>';
+        '<div class="badge ' + (p.estado || 'pendiente') + '">' + labelFor(p.estado, p.tipo) + '</div>';
       el.addEventListener('click', () => abrirModal(p));
       list.appendChild(el);
     });
@@ -471,6 +511,12 @@
     fotoLabel.textContent = '📷 Foto lista — tocá para cambiarla';
   });
 
+  function textoBotonOk(tipo){
+    if(tipo === 'retiro') return 'Producto retirado';
+    if(tipo === 'devolucion') return 'Devolución OK';
+    return 'Marcar entregado';
+  }
+
   function abrirModal(p){
     paradaActual = p;
     fotoSeleccionada = null;
@@ -480,6 +526,7 @@
     fotoLabel.textContent = '📷 Adjuntar foto del remito (opcional)';
     document.getElementById('mName').textContent = p.cliente;
     document.getElementById('mAddr').textContent = p.direccion;
+    document.getElementById('btnEntregado').textContent = textoBotonOk(p.tipo);
     backdrop.classList.add('active');
   }
   function cerrarModal(){ backdrop.classList.remove('active'); paradaActual = null; }
@@ -514,8 +561,10 @@
       await updateDoc(ref, datos);
       if(fotoFallo){
         mostrarToast('Entrega marcada — la foto no se pudo subir');
+      } else if(estado === 'entregado'){
+        mostrarToast(textoBotonOk(paradaActual.tipo) + ' ✓');
       } else {
-        mostrarToast(estado === 'entregado' ? 'Marcado como entregado ✓' : 'Reportado como problema');
+        mostrarToast('Reportado como problema');
       }
     }catch(err){
       mostrarToast('No se pudo guardar, probá de nuevo');

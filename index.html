@@ -39,6 +39,7 @@
   .brand-block{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;}
   .brand{font-size:19px;font-weight:800;color:var(--brand);letter-spacing:.01em;}
   .datepick{font-size:13px;border:1px solid var(--line);border-radius:8px;padding:6px 10px;color:var(--ink);}
+  .searchbox{font-size:13px;border:1px solid var(--line);border-radius:8px;padding:6px 12px;color:var(--ink);flex:1 1 260px;max-width:340px;}
   .live{display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:700;color:var(--ok);background:var(--ok-bg);padding:6px 12px;border-radius:99px;}
   .live .pulse{width:8px;height:8px;border-radius:50%;background:var(--ok);animation:pulse 1.6s infinite;}
   @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(30,158,107,.5);}70%{box-shadow:0 0 0 7px rgba(30,158,107,0);}100%{box-shadow:0 0 0 0 rgba(30,158,107,0);}}
@@ -102,6 +103,7 @@
       <div class="brand">RUTEO COPSA</div>
       <input type="date" id="datePicker" class="datepick">
     </div>
+    <input type="text" id="searchBox" class="searchbox" placeholder="Buscar pedido o cliente...">
     <div class="live"><span class="pulse"></span> En vivo</div>
   </div>
 
@@ -115,6 +117,7 @@
   <h2>Rutas del día</h2>
   <div class="routes" id="routes"></div>
   <div class="empty" id="emptyMsg" style="display:none;">No hay rutas cargadas para esta fecha todavía.</div>
+  <div class="empty" id="searchEmptyMsg" style="display:none;">No se encontraron resultados para esa búsqueda en la fecha seleccionada.</div>
 </div>
 
 <script type="module">
@@ -128,8 +131,10 @@
   const db = getFirestore(app);
 
   const datePicker = document.getElementById('datePicker');
+  const searchBox = document.getElementById('searchBox');
   const routesEl = document.getElementById('routes');
   const emptyMsg = document.getElementById('emptyMsg');
+  const searchEmptyMsg = document.getElementById('searchEmptyMsg');
 
   function hoyLocal(){
     const d = new Date();
@@ -142,6 +147,7 @@
   const openStops = {};  // paradaId -> bool (detalle de producto/remito abierto)
   let rutasUnsub = null;
   const paradasUnsub = {}; // rutaId -> función de unsubscribe
+  let filtroTexto = ''; // búsqueda por pedido o cliente, sólo dentro de la fecha elegida
 
   // estado en memoria de todo lo que vamos escuchando
   let rutas = {}; // rutaId -> {meta, paradas: {paradaId: data}}
@@ -150,6 +156,12 @@
     if(estado === 'entregado') return 'Entregado';
     if(estado === 'problema') return 'Con problema';
     return 'Pendiente';
+  }
+
+  function coincideBusqueda(p){
+    if(!filtroTexto) return true;
+    const texto = ((p.cliente || '') + ' ' + (p.nroPed || '')).toLowerCase();
+    return texto.includes(filtroTexto);
   }
 
   function render(){
@@ -161,6 +173,7 @@
     emptyMsg.style.display = rutaIds.length === 0 ? 'block' : 'none';
 
     let totalOk=0, totalPending=0, totalWarn=0, total=0;
+    let rutasVisibles = 0;
 
     rutaIds.forEach(rutaId => {
       const info = rutas[rutaId];
@@ -170,8 +183,14 @@
       total += paradas.length; totalOk += done; totalWarn += warn;
       totalPending += paradas.length - done - warn;
 
+      // Búsqueda: sólo dentro de las paradas de la fecha ya seleccionada.
+      const paradasVisibles = paradas.filter(coincideBusqueda);
+      if(filtroTexto && paradasVisibles.length === 0) return;
+      rutasVisibles++;
+
       const el = document.createElement('div');
-      el.className = 'route' + (openRoutes[rutaId] ? ' open' : '');
+      const forzarAbierto = filtroTexto && paradasVisibles.length > 0;
+      el.className = 'route' + ((forzarAbierto || openRoutes[rutaId]) ? ' open' : '');
 
       const head = document.createElement('div');
       head.className = 'route-head';
@@ -192,7 +211,7 @@
 
       const table = document.createElement('div');
       table.className = 'stops-table';
-      paradas.forEach(p => {
+      paradasVisibles.forEach(p => {
         const row = document.createElement('div');
         row.className = 'srow' + (openStops[p._id] ? ' open' : '');
         row.innerHTML =
@@ -212,6 +231,8 @@
 
       routesEl.appendChild(el);
     });
+
+    searchEmptyMsg.style.display = (filtroTexto && rutaIds.length > 0 && rutasVisibles === 0) ? 'block' : 'none';
 
     document.getElementById('statTotal').textContent = total;
     document.getElementById('statOk').textContent = totalOk;
@@ -265,6 +286,10 @@
   }
 
   datePicker.addEventListener('change', () => suscribirFecha(datePicker.value));
+  searchBox.addEventListener('input', () => {
+    filtroTexto = searchBox.value.trim().toLowerCase();
+    render();
+  });
   suscribirFecha(datePicker.value);
 </script>
 

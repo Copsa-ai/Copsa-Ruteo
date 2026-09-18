@@ -171,7 +171,15 @@
     const tz = d.getTimezoneOffset() * 60000;
     return new Date(d - tz).toISOString().slice(0, 10);
   }
+  function fechaMenosDias(dias){
+    const d = new Date();
+    d.setDate(d.getDate() - dias);
+    const tz = d.getTimezoneOffset() * 60000;
+    return new Date(d - tz).toISOString().slice(0, 10);
+  }
   const FECHA_HOY = hoyLocal();
+  const ESTADOS_COMPLETOS = ['entregado', 'problema'];
+  const VENTANA_DIAS_CHOFER = 30; // cuánto para atrás miramos viajes pendientes de un chofer
 
   const views = {
     pin: document.getElementById('view-pin'),
@@ -273,9 +281,15 @@
     showView('stops');
     document.getElementById('routeTitle').textContent = nombreChofer;
 
+    // Trae los viajes de este chofer de los últimos VENTANA_DIAS_CHOFER días
+    // (no solo hoy): así, si salió con un viaje al interior y le quedó algo
+    // sin confirmar, lo sigue viendo aunque hayan pasado uno o varios días.
+    // Los que ya están completos y no son de hoy se descartan al renderizar
+    // (ver rutaEstaAbierta), así el link no se llena de viajes viejos.
+    const fechaLimite = fechaMenosDias(VENTANA_DIAS_CHOFER);
     const q = query(collection(db, 'rutas'),
-      where('fecha', '==', FECHA_HOY),
-      where('chofer', '==', nombreChofer));
+      where('chofer', '==', nombreChofer),
+      where('fecha', '>=', fechaLimite));
 
     onSnapshot(q, snap => {
       limpiarSuscripcionesChofer();
@@ -303,19 +317,42 @@
     });
   }
 
+  function rutaEstaAbierta(r){
+    // Hoy siempre se muestra. De otros días, sólo si le queda alguna parada
+    // sin confirmar — si ya están todas entregadas/con problema, ese viaje
+    // se da por cerrado y desaparece del link del chofer.
+    if(r.meta.fecha === FECHA_HOY) return true;
+    return Object.values(r.paradas).some(p => !ESTADOS_COMPLETOS.includes(p.estado));
+  }
+
   function renderStopsChofer(){
     const todas = [];
     Object.entries(rutasActuales).forEach(([rutaId, r]) => {
+      if(!rutaEstaAbierta(r)) return;
       Object.entries(r.paradas).forEach(([id, p]) => {
-        todas.push({ id, rutaId, nroViaje: r.meta.nroViaje, ...p });
+        todas.push({ id, rutaId, nroViaje: r.meta.nroViaje, fecha: r.meta.fecha, ...p });
       });
     });
+
+    if(todas.length === 0){
+      document.getElementById('stopsList').innerHTML =
+        '<div class="sinrutas">No tenés paradas pendientes por ahora.</div>';
+      document.getElementById('progressText').textContent = '0/0';
+      document.getElementById('progressFill').style.width = '0%';
+      return;
+    }
+
     todas.sort((a, b) => {
+      // Hoy primero; debajo, lo pendiente de días anteriores.
+      const porFecha = (b.fecha || "").localeCompare(a.fecha || "");
+      if(porFecha !== 0) return porFecha;
       const porViaje = (a.nroViaje || "").localeCompare(b.nroViaje || "", undefined, {numeric: true});
       if(porViaje !== 0) return porViaje;
       return (a.orden ?? 0) - (b.orden ?? 0);
     });
-    pintarListaParadas(todas, p => (p.horario ? p.horario + ' · ' : '') + 'Viaje ' + p.nroViaje);
+    pintarListaParadas(todas, p =>
+      (p.fecha !== FECHA_HOY ? p.fecha + ' · ' : '') +
+      (p.horario ? p.horario + ' · ' : '') + 'Viaje ' + p.nroViaje);
   }
 
   function iniciarRutas(){

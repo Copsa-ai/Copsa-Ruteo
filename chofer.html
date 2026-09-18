@@ -180,6 +180,8 @@
   const FECHA_HOY = hoyLocal();
   const ESTADOS_COMPLETOS = ['entregado', 'problema'];
   const VENTANA_DIAS_CHOFER = 30; // cuánto para atrás miramos viajes pendientes de un chofer
+  const VENTANA_DIAS_PENDIENTES = 90; // hasta cuántos días atrás busca el panel general
+  const paradasUnsubsGeneral = {};
 
   const views = {
     pin: document.getElementById('view-pin'),
@@ -354,9 +356,6 @@
       (p.fecha !== FECHA_HOY ? p.fecha + ' · ' : '') +
       (p.horario ? p.horario + ' · ' : '') + 'Viaje ' + p.nroViaje);
   }
-
-  const VENTANA_DIAS_PENDIENTES = 90; // hasta cuántos días atrás busca este panel
-  const paradasUnsubsGeneral = {};
 
   function iniciarRutas(){
     document.getElementById('fechaHoy').textContent =

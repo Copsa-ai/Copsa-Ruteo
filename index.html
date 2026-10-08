@@ -94,6 +94,17 @@
     .route-name,.route-expreso,.route-meta{flex:1 1 auto;}
   }
 </style>
+<link rel="manifest" href="manifest-dashboard.webmanifest">
+<meta name="theme-color" content="#050b16">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Monitor Ruteo">
+<script>
+  // App instalable (PWA) del monitor general.
+  if('serviceWorker' in navigator){
+    window.addEventListener('load', function(){ navigator.serviceWorker.register('./sw.js').catch(function(){}); });
+  }
+</script>
 </head>
 <body>
 

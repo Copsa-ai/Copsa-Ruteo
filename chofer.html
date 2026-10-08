@@ -95,7 +95,34 @@
   .foto-label{display:block;text-align:center;padding:12px 0;border:1.5px dashed var(--line);border-radius:12px;font-size:13.5px;color:var(--ink-soft);font-weight:600;}
   .foto-label:active{background:var(--pending-bg);}
   #fotoPreview{display:none;max-width:100%;border-radius:10px;margin-top:10px;}
+  #btnInstalar{display:none;position:fixed;right:12px;bottom:12px;z-index:50;background:var(--brand);color:#fff;border:0;border-radius:999px;padding:10px 16px;font-size:13.5px;font-weight:600;box-shadow:0 4px 14px rgba(0,0,0,.18);}
 </style>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#1e5f8c">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Ruteo Copsa">
+<script>
+  // App instalable (PWA): recuerda el último link de chofer que se abrió.
+  // Si la app se abre desde el ícono (sin link), vuelve a ese chofer.
+  // Si llega un link nuevo (otro chofer/patente), pasa a ese.
+  (function(){
+    try{
+      var p = new URLSearchParams(location.search);
+      var chofer = (p.get('chofer') || '').trim();
+      var esApp = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+      if(chofer){
+        localStorage.setItem('ruteo_ultimo_chofer', chofer);
+      } else if(!p.get('viaje') && esApp){
+        var guardado = localStorage.getItem('ruteo_ultimo_chofer');
+        if(guardado) location.replace('chofer.html?chofer=' + encodeURIComponent(guardado));
+      }
+    }catch(e){}
+    if('serviceWorker' in navigator){
+      window.addEventListener('load', function(){ navigator.serviceWorker.register('./sw.js').catch(function(){}); });
+    }
+  })();
+</script>
 </head>
 <body>
 
@@ -151,6 +178,23 @@
     <button class="btn-cancel" id="btnCancel">Cancelar</button>
   </div>
 </div>
+
+<button id="btnInstalar" type="button">📲 Instalar app</button>
+<script>
+  // Botón "Instalar app" (Android/Chrome). En iPhone se instala desde
+  // Safari: Compartir → "Agregar a inicio".
+  (function(){
+    var aviso = null, btn = document.getElementById('btnInstalar');
+    window.addEventListener('beforeinstallprompt', function(e){
+      e.preventDefault(); aviso = e; btn.style.display = 'block';
+    });
+    btn.addEventListener('click', function(){
+      if(!aviso) return;
+      btn.style.display = 'none'; aviso.prompt(); aviso = null;
+    });
+    window.addEventListener('appinstalled', function(){ btn.style.display = 'none'; });
+  })();
+</script>
 
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";

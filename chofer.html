@@ -92,6 +92,14 @@
   .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
 
   .m-foto{margin:4px 0 16px;}
+  .m-obs{display:none;margin:0 0 12px;}
+  .m-obs.visible{display:block;}
+  .m-obs label{display:block;font-size:13px;font-weight:700;color:var(--warn);margin-bottom:6px;}
+  .m-obs textarea{width:100%;box-sizing:border-box;min-height:84px;padding:10px 12px;border:1.5px solid var(--line);border-radius:12px;font:inherit;font-size:14px;resize:vertical;}
+  .m-obs textarea.error{border-color:var(--warn);}
+  .m-obs .obs-hint{font-size:12px;color:var(--warn);margin-top:4px;display:none;}
+  .m-obs textarea.error + .obs-hint{display:block;}
+  .stop-obs{font-size:12px;color:var(--warn);margin-top:3px;}
   .foto-label{display:block;text-align:center;padding:12px 0;border:1.5px dashed var(--line);border-radius:12px;font-size:13.5px;color:var(--ink-soft);font-weight:600;}
   .foto-label:active{background:var(--pending-bg);}
   #fotoPreview{display:none;max-width:100%;border-radius:10px;margin-top:10px;}
@@ -172,6 +180,11 @@
       <label class="foto-label" id="fotoLabel">📷 Adjuntar foto del remito (opcional)</label>
       <input type="file" accept="image/*" capture="environment" id="fotoInput" style="display:none;">
       <img id="fotoPreview" alt="">
+    </div>
+    <div class="m-obs" id="mObs">
+      <label for="obsInput">¿Qué pasó? (obligatorio)</label>
+      <textarea id="obsInput" maxlength="500" placeholder="Ej.: cliente cerrado, no recibió, faltó mercadería, dirección incorrecta…"></textarea>
+      <div class="obs-hint">Escribí qué pasó antes de enviar.</div>
     </div>
     <button class="btn-ok" id="btnEntregado">Marcar entregado</button>
     <button class="btn-warn" id="btnProblema">Reportar problema</button>
@@ -526,6 +539,7 @@
           '<div class="stop-name">' + p.cliente + '</div>' +
           '<div class="stop-addr">' + p.direccion + '</div>' +
           (extra ? '<div class="stop-horario">' + extra + '</div>' : '') +
+          (p.estado === 'problema' && p.observacion ? '<div class="stop-obs">⚠ ' + escHtml(p.observacion) + '</div>' : '') +
         '</div>' +
         '<div class="badge ' + (p.estado || 'pendiente') + '">' + labelFor(p.estado, p.tipo) + '</div>';
       el.addEventListener('click', () => abrirModal(p));
@@ -554,6 +568,12 @@
     fotoLabel.textContent = '📷 Foto lista — tocá para cambiarla';
   });
 
+  const mObs = document.getElementById('mObs');
+  const obsInput = document.getElementById('obsInput');
+  const btnProblema = document.getElementById('btnProblema');
+  function escHtml(s){ return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  obsInput.addEventListener('input', () => obsInput.classList.remove('error'));
+
   function textoBotonOk(tipo){
     if(tipo === 'retiro') return 'Producto retirado';
     if(tipo === 'devolucion') return 'Devolución OK';
@@ -570,6 +590,10 @@
     document.getElementById('mName').textContent = p.cliente;
     document.getElementById('mAddr').textContent = p.direccion;
     document.getElementById('btnEntregado').textContent = textoBotonOk(p.tipo);
+    obsInput.value = p.estado === 'problema' ? (p.observacion || '') : '';
+    obsInput.classList.remove('error');
+    mObs.classList.remove('visible');
+    btnProblema.textContent = 'Reportar problema';
     backdrop.classList.add('active');
   }
   function cerrarModal(){ backdrop.classList.remove('active'); paradaActual = null; }
@@ -581,7 +605,10 @@
     const rutaId = paradaActual.rutaId || rutaAbierta;
     if(!rutaId) return;
     const ref = doc(db, 'rutas', rutaId, 'paradas', paradaActual.id);
-    const datos = { estado, horaActualizacion: serverTimestamp() };
+    // avisoEnviado = false: si el chofer cambia el estado (ej. de problema a
+    // entregado), sale un aviso nuevo con el estado actualizado.
+    const datos = { estado, horaActualizacion: serverTimestamp(), avisoEnviado: false,
+                    observacion: estado === 'problema' ? obsInput.value.trim() : '' };
     let fotoFallo = false;
 
     // La foto es opcional: si Storage todavía no está activado (o falla la
@@ -616,7 +643,18 @@
     cerrarModal();
   }
   document.getElementById('btnEntregado').addEventListener('click', () => marcar('entregado'));
-  document.getElementById('btnProblema').addEventListener('click', () => marcar('problema'));
+  // Primer toque: muestra el campo de observación. Segundo toque: envía
+  // (la observación es obligatoria).
+  btnProblema.addEventListener('click', () => {
+    if(!mObs.classList.contains('visible')){
+      mObs.classList.add('visible');
+      btnProblema.textContent = 'Enviar problema';
+      obsInput.focus();
+      return;
+    }
+    if(!obsInput.value.trim()){ obsInput.classList.add('error'); obsInput.focus(); return; }
+    marcar('problema');
+  });
 
   let toastTimer;
   function mostrarToast(msg){

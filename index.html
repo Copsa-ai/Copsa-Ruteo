@@ -82,6 +82,7 @@
   .srow-detail{display:none;margin-top:8px;padding:10px 12px;background:var(--pending-bg);border-radius:10px;font-size:12.5px;color:var(--ink);}
   .srow.open .srow-detail{display:block;}
   .srow-detail b{color:var(--ink-soft);font-weight:600;}
+  .srow-detail .obs{color:var(--warn);}
 
   .badge{font-size:11px;font-weight:700;padding:4px 10px;border-radius:99px;white-space:nowrap;flex:0 0 auto;min-width:84px;text-align:center;}
   .badge.pendiente{background:var(--pending-bg);color:var(--ink-soft);}
@@ -237,6 +238,7 @@
             '<div class="badge ' + p.estado + '">' + labelFor(p.estado, p.tipo) + '</div>' +
           '</div>' +
           '<div class="srow-detail"><b>Producto:</b> ' + (p.producto || '—') + '<br><b>Remito:</b> ' + (p.remito || '—') +
+            (p.estado === 'problema' ? '<br><span class="obs"><b>Observación del chofer:</b> ' + (p.observacion ? String(p.observacion).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : 'sin detalle') + '</span>' : '') +
             (p.fotoRemito ? '<br><a href="' + p.fotoRemito + '" target="_blank" rel="noopener">📷 Ver foto del remito</a>' : '') +
           '</div>';
         row.addEventListener('click', () => { openStops[p._id] = !openStops[p._id]; render(); });

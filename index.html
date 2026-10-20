@@ -238,7 +238,7 @@
             '<div class="badge ' + p.estado + '">' + labelFor(p.estado, p.tipo) + '</div>' +
           '</div>' +
           '<div class="srow-detail"><b>Producto:</b> ' + (p.producto || '—') + '<br><b>Remito:</b> ' + (p.remito || '—') +
-            (p.estado === 'problema' ? '<br><span class="obs"><b>Observación del chofer:</b> ' + (p.observacion ? String(p.observacion).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : 'sin detalle') + '</span>' : '') +
+            (p.estado === 'problema' || p.observacion ? '<br><span class="obs"' + (p.estado === 'problema' ? '' : ' style="color:inherit"') + '><b>Observación del chofer:</b> ' + (p.observacion ? String(p.observacion).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : 'sin detalle') + '</span>' : '') +
             (p.fotoRemito ? '<br><a href="' + p.fotoRemito + '" target="_blank" rel="noopener">📷 Ver foto del remito</a>' : '') +
           '</div>';
         row.addEventListener('click', () => { openStops[p._id] = !openStops[p._id]; render(); });

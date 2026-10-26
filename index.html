@@ -113,7 +113,7 @@
   <div class="topbar">
     <div class="brand-block">
       <div class="brand">RUTEO COPSA</div>
-      <input type="date" id="datePicker" class="datepick">
+      <input type="date" id="datePicker" class="datepick" autocomplete="off">
     </div>
     <input type="text" id="searchBox" class="searchbox" placeholder="Buscar pedido o cliente...">
     <div class="live"><span class="pulse"></span> En vivo</div>
@@ -308,6 +308,28 @@
     render();
   });
   suscribirFecha(datePicker.value);
+
+  // Mantener el monitor en el día de hoy: si la pestaña quedó abierta de otro día,
+  // se restauró con "atrás" o pasó la medianoche, salta solo a la fecha actual.
+  // Si alguien eligió otra fecha a mano para consultar, se respeta.
+  let hoyActual = hoyLocal();
+  function actualizarAHoy(forzar){
+    const nuevoHoy = hoyLocal();
+    const enHoy = datePicker.value === hoyActual;
+    if(forzar || (nuevoHoy !== hoyActual && enHoy)){
+      hoyActual = nuevoHoy;
+      if(datePicker.value !== nuevoHoy){
+        datePicker.value = nuevoHoy;
+        suscribirFecha(nuevoHoy);
+      }
+    } else {
+      hoyActual = nuevoHoy;
+    }
+  }
+  document.addEventListener('visibilitychange', () => { if(!document.hidden) actualizarAHoy(false); });
+  window.addEventListener('focus', () => actualizarAHoy(false));
+  window.addEventListener('pageshow', e => { if(e.persisted) actualizarAHoy(true); });
+  setInterval(() => actualizarAHoy(false), 60000);
 </script>
 
 </body>

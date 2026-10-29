@@ -89,6 +89,14 @@
   .badge.entregado{background:var(--ok-bg);color:var(--ok);}
   .badge.problema{background:var(--warn-bg);color:var(--warn);}
 
+  /* Viajes de días anteriores con paradas sin marcar (solo al mirar hoy) */
+  .atrasadas{margin-bottom:26px;}
+  .atrasadas h2{color:var(--warn);}
+  .atrasadas .sub{font-size:12px;color:var(--ink-soft);font-weight:400;margin-left:6px;}
+  .route.atrasada{border-color:#f3c9b4;}
+  .fecha-tag{display:inline-block;font-size:11px;font-weight:700;color:var(--warn);background:var(--warn-bg);
+    padding:3px 8px;border-radius:99px;margin-top:4px;}
+
   @media (max-width:640px){
     .stats{grid-template-columns:repeat(2,1fr);}
     .route-head{flex-wrap:wrap;}
@@ -124,6 +132,11 @@
     <div class="stat ok"><div class="n" id="statOk">—</div><div class="t">Entregadas</div></div>
     <div class="stat pending"><div class="n" id="statPending">—</div><div class="t">Pendientes</div></div>
     <div class="stat warn"><div class="n" id="statWarn">—</div><div class="t">Con problema</div></div>
+  </div>
+
+  <div class="atrasadas" id="atrasadasBox" style="display:none;">
+    <h2>Pendientes de días anteriores <span class="sub">(no suman en los contadores de hoy)</span></h2>
+    <div class="routes" id="routesAtrasadas"></div>
   </div>
 
   <h2>Rutas del día</h2>
@@ -180,7 +193,107 @@
     return texto.includes(filtroTexto);
   }
 
+  // ---------- Viajes de días anteriores con paradas sin marcar ----------
+  // Solo cuando se mira el día de hoy. Misma ventana que el link del chofer.
+  // No suman en los contadores del día; desaparecen solos al completarse.
+  const VENTANA_DIAS_ATRASADOS = 30;
+  const ESTADOS_COMPLETOS = ['entregado', 'problema'];
+  const atrasadasBox = document.getElementById('atrasadasBox');
+  const routesAtrasadasEl = document.getElementById('routesAtrasadas');
+  let rutasAtrasadas = {}; // rutaId -> {meta, paradas}
+  let atrasadasUnsub = null;
+  const paradasAtrasadasUnsub = {};
+
+  function fechaMenosDias(dias){
+    const d = new Date();
+    d.setDate(d.getDate() - dias);
+    const tz = d.getTimezoneOffset() * 60000;
+    return new Date(d - tz).toISOString().slice(0, 10);
+  }
+  function fechaCorta(f){ // 2026-10-27 -> 27/10
+    const m = String(f || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    return m ? m[3] + '/' + m[2] : (f || '');
+  }
+  function escHtml(s){ return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  function ordenarParadas(info){
+    return Object.values(info.paradas || {}).sort((a,b) => (a.orden ?? 0) - (b.orden ?? 0));
+  }
+
+  // Arma la tarjeta de un viaje. etiquetaFecha: texto de la fecha original (solo atrasados).
+  function tarjetaViaje(rutaId, info, paradas, paradasVisibles, etiquetaFecha){
+    const done = paradas.filter(p => p.estado === 'entregado').length;
+    const el = document.createElement('div');
+    const forzarAbierto = filtroTexto && paradasVisibles.length > 0;
+    el.className = 'route' + (etiquetaFecha ? ' atrasada' : '') + ((forzarAbierto || openRoutes[rutaId]) ? ' open' : '');
+
+    const head = document.createElement('div');
+    head.className = 'route-head';
+    head.innerHTML =
+      '<div class="route-name">Viaje ' + (info.meta.nroViaje || '?') +
+        (etiquetaFecha ? '<br><span class="fecha-tag">del ' + etiquetaFecha + '</span>' : '') + '</div>' +
+      '<div class="route-expreso">' + (info.meta.expreso || '') + '</div>' +
+      '<div class="route-meta">' +
+        '<span class="patente">' + (info.meta.vehiculo || '—') + '</span>' +
+        '<span class="chofer">' + (info.meta.chofer || 'Sin asignar') + '</span>' +
+      '</div>' +
+      '<div class="route-bar-wrap">' +
+        '<div class="route-bar"><div class="route-bar-fill" style="width:' + (paradas.length ? (100*done/paradas.length) : 0) + '%"></div></div>' +
+        '<div class="route-count">' + done + '/' + paradas.length + '</div>' +
+      '</div>' +
+      '<div class="chev">›</div>';
+    head.addEventListener('click', () => { openRoutes[rutaId] = !openRoutes[rutaId]; render(); });
+    el.appendChild(head);
+
+    const table = document.createElement('div');
+    table.className = 'stops-table';
+    paradasVisibles.forEach(p => {
+      const row = document.createElement('div');
+      row.className = 'srow' + (openStops[p._id] ? ' open' : '');
+      row.innerHTML =
+        '<div class="srow-top">' +
+          '<div class="sc-name">' + p.cliente + '</div>' +
+          '<div class="sc-addr">' + p.direccion + '</div>' +
+          '<div class="sc-time">' + (p.horaTexto || '') + '</div>' +
+          '<div class="badge ' + p.estado + '">' + labelFor(p.estado, p.tipo) + '</div>' +
+        '</div>' +
+        '<div class="srow-detail"><b>Producto:</b> ' + (p.producto || '—') + '<br><b>Remito:</b> ' + (p.remito || '—') +
+          (p.estado === 'problema' || p.observacion ? '<br><span class="obs"' + (p.estado === 'problema' ? '' : ' style="color:inherit"') + '><b>Observación del chofer:</b> ' + (p.observacion ? escHtml(p.observacion) : 'sin detalle') + '</span>' : '') +
+          (p.fotoRemito ? '<br><a href="' + p.fotoRemito + '" target="_blank" rel="noopener">📷 Ver foto del remito</a>' : '') +
+        '</div>';
+      row.addEventListener('click', () => { openStops[p._id] = !openStops[p._id]; render(); });
+      table.appendChild(row);
+    });
+    el.appendChild(table);
+    return el;
+  }
+
+  function renderAtrasadas(){
+    routesAtrasadasEl.innerHTML = "";
+    let visibles = 0;
+    const ids = Object.keys(rutasAtrasadas).sort((a,b) => {
+      const ra = rutasAtrasadas[a].meta, rb = rutasAtrasadas[b].meta;
+      const porFecha = (ra.fecha || "").localeCompare(rb.fecha || ""); // más viejo primero
+      if(porFecha !== 0) return porFecha;
+      return (ra.nroViaje || "").localeCompare(rb.nroViaje || "", undefined, {numeric:true});
+    });
+    ids.forEach(rutaId => {
+      const info = rutasAtrasadas[rutaId];
+      const paradas = ordenarParadas(info);
+      // Solo viajes que todavía tienen alguna parada sin marcar.
+      if(paradas.length === 0 || !paradas.some(p => !ESTADOS_COMPLETOS.includes(p.estado))) return;
+      const paradasVisibles = paradas.filter(coincideBusqueda);
+      if(filtroTexto && paradasVisibles.length === 0) return;
+      visibles++;
+      routesAtrasadasEl.appendChild(tarjetaViaje(rutaId, info, paradas, paradasVisibles, fechaCorta(info.meta.fecha)));
+    });
+    atrasadasBox.style.display = visibles > 0 ? 'block' : 'none';
+    return visibles;
+  }
+
   function render(){
+    const atrasadasVisibles = renderAtrasadas();
+
     routesEl.innerHTML = "";
     const rutaIds = Object.keys(rutas).sort((a,b) => {
       return (rutas[a].meta.nroViaje || "").localeCompare(rutas[b].meta.nroViaje || "", undefined, {numeric:true});
@@ -193,7 +306,7 @@
 
     rutaIds.forEach(rutaId => {
       const info = rutas[rutaId];
-      const paradas = Object.values(info.paradas || {}).sort((a,b) => (a.orden ?? 0) - (b.orden ?? 0));
+      const paradas = ordenarParadas(info);
       const done = paradas.filter(p => p.estado === 'entregado').length;
       const warn = paradas.filter(p => p.estado === 'problema').length;
       total += paradas.length; totalOk += done; totalWarn += warn;
@@ -203,53 +316,10 @@
       const paradasVisibles = paradas.filter(coincideBusqueda);
       if(filtroTexto && paradasVisibles.length === 0) return;
       rutasVisibles++;
-
-      const el = document.createElement('div');
-      const forzarAbierto = filtroTexto && paradasVisibles.length > 0;
-      el.className = 'route' + ((forzarAbierto || openRoutes[rutaId]) ? ' open' : '');
-
-      const head = document.createElement('div');
-      head.className = 'route-head';
-      head.innerHTML =
-        '<div class="route-name">Viaje ' + (info.meta.nroViaje || '?') + '</div>' +
-        '<div class="route-expreso">' + (info.meta.expreso || '') + '</div>' +
-        '<div class="route-meta">' +
-          '<span class="patente">' + (info.meta.vehiculo || '—') + '</span>' +
-          '<span class="chofer">' + (info.meta.chofer || 'Sin asignar') + '</span>' +
-        '</div>' +
-        '<div class="route-bar-wrap">' +
-          '<div class="route-bar"><div class="route-bar-fill" style="width:' + (paradas.length ? (100*done/paradas.length) : 0) + '%"></div></div>' +
-          '<div class="route-count">' + done + '/' + paradas.length + '</div>' +
-        '</div>' +
-        '<div class="chev">›</div>';
-      head.addEventListener('click', () => { openRoutes[rutaId] = !openRoutes[rutaId]; render(); });
-      el.appendChild(head);
-
-      const table = document.createElement('div');
-      table.className = 'stops-table';
-      paradasVisibles.forEach(p => {
-        const row = document.createElement('div');
-        row.className = 'srow' + (openStops[p._id] ? ' open' : '');
-        row.innerHTML =
-          '<div class="srow-top">' +
-            '<div class="sc-name">' + p.cliente + '</div>' +
-            '<div class="sc-addr">' + p.direccion + '</div>' +
-            '<div class="sc-time">' + (p.horaTexto || '') + '</div>' +
-            '<div class="badge ' + p.estado + '">' + labelFor(p.estado, p.tipo) + '</div>' +
-          '</div>' +
-          '<div class="srow-detail"><b>Producto:</b> ' + (p.producto || '—') + '<br><b>Remito:</b> ' + (p.remito || '—') +
-            (p.estado === 'problema' || p.observacion ? '<br><span class="obs"' + (p.estado === 'problema' ? '' : ' style="color:inherit"') + '><b>Observación del chofer:</b> ' + (p.observacion ? String(p.observacion).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : 'sin detalle') + '</span>' : '') +
-            (p.fotoRemito ? '<br><a href="' + p.fotoRemito + '" target="_blank" rel="noopener">📷 Ver foto del remito</a>' : '') +
-          '</div>';
-        row.addEventListener('click', () => { openStops[p._id] = !openStops[p._id]; render(); });
-        table.appendChild(row);
-      });
-      el.appendChild(table);
-
-      routesEl.appendChild(el);
+      routesEl.appendChild(tarjetaViaje(rutaId, info, paradas, paradasVisibles, ''));
     });
 
-    searchEmptyMsg.style.display = (filtroTexto && rutaIds.length > 0 && rutasVisibles === 0) ? 'block' : 'none';
+    searchEmptyMsg.style.display = (filtroTexto && rutaIds.length > 0 && rutasVisibles === 0 && atrasadasVisibles === 0) ? 'block' : 'none';
 
     document.getElementById('statTotal').textContent = total;
     document.getElementById('statOk').textContent = totalOk;
@@ -257,20 +327,61 @@
     document.getElementById('statWarn').textContent = totalWarn;
   }
 
+  function leerParadas(rutaId, snap){
+    const paradas = {};
+    snap.forEach(d => {
+      const data = d.data();
+      data._id = rutaId + '_' + d.id;
+      data.horaTexto = data.horaActualizacion && data.horaActualizacion.toDate
+        ? data.horaActualizacion.toDate().toLocaleTimeString('es-AR', {hour:'2-digit', minute:'2-digit'})
+        : '';
+      paradas[d.id] = data;
+    });
+    return paradas;
+  }
+
   function suscribirParadas(rutaId){
     if(paradasUnsub[rutaId]) paradasUnsub[rutaId]();
     const paradasRef = collection(db, 'rutas', rutaId, 'paradas');
     paradasUnsub[rutaId] = onSnapshot(paradasRef, snap => {
-      const paradas = {};
-      snap.forEach(d => {
-        const data = d.data();
-        data._id = rutaId + '_' + d.id;
-        data.horaTexto = data.horaActualizacion && data.horaActualizacion.toDate
-          ? data.horaActualizacion.toDate().toLocaleTimeString('es-AR', {hour:'2-digit', minute:'2-digit'})
-          : '';
-        paradas[d.id] = data;
-      });
+      const paradas = leerParadas(rutaId, snap);
       if(rutas[rutaId]) rutas[rutaId].paradas = paradas;
+      render();
+    });
+  }
+
+  function cortarAtrasadas(){
+    if(atrasadasUnsub){ atrasadasUnsub(); atrasadasUnsub = null; }
+    Object.values(paradasAtrasadasUnsub).forEach(fn => fn());
+    for(const k in paradasAtrasadasUnsub) delete paradasAtrasadasUnsub[k];
+    rutasAtrasadas = {};
+  }
+
+  function suscribirAtrasadas(hoy){
+    cortarAtrasadas();
+    const q = query(collection(db, 'rutas'),
+      where('fecha', '>=', fechaMenosDias(VENTANA_DIAS_ATRASADOS)),
+      where('fecha', '<', hoy));
+    atrasadasUnsub = onSnapshot(q, snap => {
+      const idsActuales = new Set();
+      snap.forEach(d => {
+        idsActuales.add(d.id);
+        if(!rutasAtrasadas[d.id]) rutasAtrasadas[d.id] = { meta: d.data(), paradas: {} };
+        else rutasAtrasadas[d.id].meta = d.data();
+        if(!paradasAtrasadasUnsub[d.id]){
+          const rutaId = d.id;
+          paradasAtrasadasUnsub[rutaId] = onSnapshot(collection(db, 'rutas', rutaId, 'paradas'), ps => {
+            if(rutasAtrasadas[rutaId]) rutasAtrasadas[rutaId].paradas = leerParadas(rutaId, ps);
+            render();
+          });
+        }
+      });
+      Object.keys(rutasAtrasadas).forEach(id => {
+        if(!idsActuales.has(id)){
+          if(paradasAtrasadasUnsub[id]){ paradasAtrasadasUnsub[id](); delete paradasAtrasadasUnsub[id]; }
+          delete rutasAtrasadas[id];
+        }
+      });
       render();
     });
   }
@@ -280,6 +391,9 @@
     Object.values(paradasUnsub).forEach(fn => fn());
     for(const k in paradasUnsub) delete paradasUnsub[k];
     rutas = {};
+    // Pendientes de días anteriores: solo al mirar hoy.
+    if(fecha === hoyLocal()) suscribirAtrasadas(fecha);
+    else cortarAtrasadas();
     render();
 
     const q = query(collection(db, 'rutas'), where('fecha', '==', fecha));
@@ -301,7 +415,6 @@
       render();
     });
   }
-
   datePicker.addEventListener('change', () => suscribirFecha(datePicker.value));
   searchBox.addEventListener('input', () => {
     filtroTexto = searchBox.value.trim().toLowerCase();

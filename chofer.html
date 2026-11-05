@@ -214,7 +214,7 @@
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
   import {
-    getFirestore, collection, query, where, onSnapshot, doc, updateDoc, serverTimestamp
+    getFirestore, collection, collectionGroup, query, where, onSnapshot, doc, updateDoc, serverTimestamp
   } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
   import {
     getStorage, ref as storageRef, uploadBytes, getDownloadURL
@@ -416,29 +416,65 @@
       (p.horario ? p.horario + ' · ' : '') + 'Viaje ' + p.nroViaje);
   }
 
+  // Panel general: los viajes de HOY completos + de días anteriores solo lo que
+  // quedó pendiente (una consulta liviana sobre todas las paradas pendientes).
+  // Antes se leían todos los viajes y paradas de 90 días: agotaba la cuota
+  // gratuita de Firestore (05/11).
+  const metaUnsubsGeneral = {};
   function iniciarRutas(){
     document.getElementById('fechaHoy').textContent =
-      'Últimos ' + VENTANA_DIAS_PENDIENTES + ' días · se actualiza en vivo';
+      'Hoy y pendientes de los últimos ' + VENTANA_DIAS_PENDIENTES + ' días · se actualiza en vivo';
     showView('route');
 
-    const fechaLimite = fechaMenosDias(VENTANA_DIAS_PENDIENTES);
-    const q = query(collection(db, 'rutas'), where('fecha', '>=', fechaLimite));
-    onSnapshot(q, snap => {
-      const idsActuales = new Set();
+    const qHoy = query(collection(db, 'rutas'), where('fecha', '==', FECHA_HOY));
+    onSnapshot(qHoy, snap => {
+      const idsHoy = new Set();
       snap.forEach(d => {
-        idsActuales.add(d.id);
+        idsHoy.add(d.id);
         if(!rutasActuales[d.id]) rutasActuales[d.id] = { meta: d.data(), paradas: {} };
-        else rutasActuales[d.id].meta = d.data();
+        else { rutasActuales[d.id].meta = d.data(); rutasActuales[d.id].esVieja = false; }
         if(!paradasUnsubsGeneral[d.id]) suscribirParadasGeneral(d.id);
       });
       Object.keys(rutasActuales).forEach(id => {
-        if(!idsActuales.has(id)){
+        const r = rutasActuales[id];
+        if(!r.esVieja && !idsHoy.has(id)){
           if(paradasUnsubsGeneral[id]){ paradasUnsubsGeneral[id](); delete paradasUnsubsGeneral[id]; }
           delete rutasActuales[id];
         }
       });
       renderRouteList();
     });
+
+    const qPend = query(collectionGroup(db, 'paradas'),
+      where('estado', '==', 'pendiente'),
+      where('fecha', '>=', fechaMenosDias(VENTANA_DIAS_PENDIENTES)),
+      where('fecha', '<', FECHA_HOY));
+    onSnapshot(qPend, snap => {
+      const porRuta = {};
+      snap.forEach(d => {
+        const rid = d.ref.parent.parent.id;
+        (porRuta[rid] = porRuta[rid] || {})[d.id] = d.data();
+      });
+      // viajes viejos que ya no tienen pendientes: salen de la lista
+      Object.keys(rutasActuales).forEach(id => {
+        if(rutasActuales[id].esVieja && !porRuta[id] && id !== rutaAbierta){
+          if(metaUnsubsGeneral[id]){ metaUnsubsGeneral[id](); delete metaUnsubsGeneral[id]; }
+          delete rutasActuales[id];
+        }
+      });
+      Object.entries(porRuta).forEach(([rid, paradas]) => {
+        const p0 = Object.values(paradas)[0] || {};
+        if(!rutasActuales[rid]) rutasActuales[rid] = { meta: { fecha: p0.fecha, nroViaje: p0.nroViaje }, paradas: {}, esVieja: true };
+        // si el viaje está abierto en pantalla, abrirRuta ya tiene todas sus paradas
+        if(rid !== rutaAbierta) rutasActuales[rid].paradas = paradas;
+        if(!metaUnsubsGeneral[rid]){
+          metaUnsubsGeneral[rid] = onSnapshot(doc(db, 'rutas', rid), s => {
+            if(s.exists() && rutasActuales[rid]){ rutasActuales[rid].meta = s.data(); renderRouteList(); }
+          });
+        }
+      });
+      renderRouteList();
+    }, err => console.error('Pendientes de días anteriores:', err));
   }
 
   function suscribirParadasGeneral(rutaId){

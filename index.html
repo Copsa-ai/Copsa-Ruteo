@@ -148,7 +148,7 @@
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
   import {
-    getFirestore, collection, query, where, orderBy, onSnapshot
+    getFirestore, collection, collectionGroup, doc, query, where, orderBy, onSnapshot
   } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
   import { firebaseConfig } from "./firebase-config.js";
 
@@ -238,8 +238,8 @@
         '<span class="chofer">' + (info.meta.chofer || 'Sin asignar') + '</span>' +
       '</div>' +
       '<div class="route-bar-wrap">' +
-        '<div class="route-bar"><div class="route-bar-fill" style="width:' + (paradas.length ? (100*done/paradas.length) : 0) + '%"></div></div>' +
-        '<div class="route-count">' + done + '/' + paradas.length + '</div>' +
+        '<div class="route-bar"' + (etiquetaFecha ? ' style="visibility:hidden"' : '') + '><div class="route-bar-fill" style="width:' + (paradas.length ? (100*done/paradas.length) : 0) + '%"></div></div>' +
+        '<div class="route-count">' + (etiquetaFecha ? paradas.length + ' sin marcar' : done + '/' + paradas.length) + '</div>' +
       '</div>' +
       '<div class="chev">›</div>';
     head.addEventListener('click', () => { openRoutes[rutaId] = !openRoutes[rutaId]; render(); });
@@ -357,33 +357,44 @@
     rutasAtrasadas = {};
   }
 
+  // Lee SOLO las paradas pendientes de días anteriores (una consulta liviana sobre
+  // todas las subcolecciones "paradas"), y el encabezado de cada viaje que tenga
+  // alguna. Antes se leían todos los viajes y paradas de 30 días: agotaba la
+  // cuota gratuita de Firestore (05/11).
   function suscribirAtrasadas(hoy){
     cortarAtrasadas();
-    const q = query(collection(db, 'rutas'),
+    const q = query(collectionGroup(db, 'paradas'),
+      where('estado', '==', 'pendiente'),
       where('fecha', '>=', fechaMenosDias(VENTANA_DIAS_ATRASADOS)),
       where('fecha', '<', hoy));
     atrasadasUnsub = onSnapshot(q, snap => {
-      const idsActuales = new Set();
+      const porRuta = {};
       snap.forEach(d => {
-        idsActuales.add(d.id);
-        if(!rutasAtrasadas[d.id]) rutasAtrasadas[d.id] = { meta: d.data(), paradas: {} };
-        else rutasAtrasadas[d.id].meta = d.data();
-        if(!paradasAtrasadasUnsub[d.id]){
-          const rutaId = d.id;
-          paradasAtrasadasUnsub[rutaId] = onSnapshot(collection(db, 'rutas', rutaId, 'paradas'), ps => {
-            if(rutasAtrasadas[rutaId]) rutasAtrasadas[rutaId].paradas = leerParadas(rutaId, ps);
-            render();
-          });
-        }
+        const rutaId = d.ref.parent.parent.id;
+        const data = d.data();
+        data._id = rutaId + '_' + d.id;
+        data.horaTexto = '';
+        (porRuta[rutaId] = porRuta[rutaId] || {})[d.id] = data;
       });
       Object.keys(rutasAtrasadas).forEach(id => {
-        if(!idsActuales.has(id)){
+        if(!porRuta[id]){
           if(paradasAtrasadasUnsub[id]){ paradasAtrasadasUnsub[id](); delete paradasAtrasadasUnsub[id]; }
           delete rutasAtrasadas[id];
         }
       });
+      Object.entries(porRuta).forEach(([rutaId, paradas]) => {
+        const p0 = Object.values(paradas)[0] || {};
+        if(!rutasAtrasadas[rutaId]) rutasAtrasadas[rutaId] = { meta: { fecha: p0.fecha, nroViaje: p0.nroViaje }, paradas };
+        else rutasAtrasadas[rutaId].paradas = paradas;
+        if(!paradasAtrasadasUnsub[rutaId]){
+          // encabezado del viaje (chofer, patente, expreso): 1 lectura por viaje
+          paradasAtrasadasUnsub[rutaId] = onSnapshot(doc(db, 'rutas', rutaId), s => {
+            if(s.exists() && rutasAtrasadas[rutaId]){ rutasAtrasadas[rutaId].meta = s.data(); render(); }
+          });
+        }
+      });
       render();
-    });
+    }, err => console.error('Pendientes de días anteriores:', err));
   }
 
   function suscribirFecha(fecha){

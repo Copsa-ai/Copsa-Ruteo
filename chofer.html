@@ -219,10 +219,39 @@
   import {
     getStorage, ref as storageRef, uploadBytes, getDownloadURL
   } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-storage.js";
+  import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
   import { firebaseConfig, PIN_CHOFER } from "./firebase-config.js";
 
   const app = initializeApp(firebaseConfig);
   const db = getFirestore(app);
+
+  // Identificación anónima (06/11): las reglas de Firestore solo dejan leer a las
+  // pantallas identificadas. Así las versiones viejas que quedaron abiertas en
+  // celulares o PCs dejan de leer solas. El usuario no ve nada distinto.
+  const auth = getAuth(app);
+  const authListo = Promise.race([
+    signInAnonymously(auth).catch(e => console.error('Identificación anónima:', e)),
+    new Promise(r => setTimeout(r, 8000))
+  ]);
+
+  // Actualización automática (06/11): si en GitHub hay una versión nueva
+  // (archivo version.txt), la pantalla se recarga sola. Como mucho una vez cada 15 min.
+  const APP_VERSION = "2026-11-06a";
+  async function revisarVersion(){
+    try{
+      const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
+      if(!r.ok) return;
+      const v = (await r.text()).trim();
+      if(!v || v === APP_VERSION) return;
+      let ultimo = 0;
+      try { ultimo = Number(sessionStorage.getItem('ruteo_recarga') || 0); } catch(e) {}
+      if(Date.now() - ultimo < 15 * 60000) return;
+      try { sessionStorage.setItem('ruteo_recarga', String(Date.now())); } catch(e) {}
+      location.reload();
+    } catch(e) {}
+  }
+  setInterval(revisarVersion, 10 * 60000);
+  document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'visible') revisarVersion(); });
   const storage = getStorage(app);
 
   function hoyLocal(){
@@ -256,8 +285,9 @@
   const pinDots = document.querySelectorAll('#pinDots span');
   const pinError = document.getElementById('pinError');
 
-  function entrarSiPinValido(){
+  async function entrarSiPinValido(){
     if(pin === PIN_CHOFER){
+      await authListo;
       try { localStorage.setItem('ruteo_pin_ok', '1'); } catch(e) {}
       iniciarRutas();
     } else {
@@ -298,6 +328,7 @@
   let paradasUnsub = null;
   let paradasUnsubsChofer = [];
 
+  await authListo;
   if(modoDirecto){
     document.getElementById('backToRoutes').style.visibility = 'hidden';
     iniciarDirecto(viajeParam);

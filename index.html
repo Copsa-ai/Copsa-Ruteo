@@ -97,6 +97,8 @@
   .fecha-tag{display:inline-block;font-size:11px;font-weight:700;color:var(--warn);background:var(--warn-bg);
     padding:3px 8px;border-radius:99px;margin-top:4px;}
 
+  .salir-btn{background:transparent;border:1px solid var(--line);border-radius:99px;padding:6px 12px;font-size:12px;color:var(--ink-soft);cursor:pointer;}
+
   @media (max-width:640px){
     .stats{grid-template-columns:repeat(2,1fr);}
     .route-head{flex-wrap:wrap;}
@@ -125,6 +127,7 @@
     </div>
     <input type="text" id="searchBox" class="searchbox" placeholder="Buscar pedido o cliente...">
     <div class="live"><span class="pulse"></span> En vivo</div>
+    <button type="button" id="btnSalir" class="salir-btn" title="Cerrar sesión">Salir</button>
   </div>
 
   <div class="stats">
@@ -150,24 +153,84 @@
   import {
     getFirestore, collection, collectionGroup, doc, query, where, orderBy, onSnapshot
   } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
-  import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
+  import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
+  import { getStorage, ref as storageRef, getBlob } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-storage.js";
   import { firebaseConfig } from "./firebase-config.js";
 
   const app = initializeApp(firebaseConfig);
   const db = getFirestore(app);
 
-  // Identificación anónima (06/11): las reglas de Firestore solo dejan leer a las
-  // pantallas identificadas. Así las versiones viejas que quedaron abiertas en
-  // celulares o PCs dejan de leer solas. El usuario no ve nada distinto.
   const auth = getAuth(app);
-  const authListo = Promise.race([
-    signInAnonymously(auth).catch(e => console.error('Identificación anónima:', e)),
-    new Promise(r => setTimeout(r, 8000))
-  ]);
+  const storage = getStorage(app);
+
+  // ---------- Login con Google (solo cuentas de Copsa) — 10/11 ----------
+  // Reemplaza al acceso abierto y al PIN. Las reglas de Firestore/Storage
+  // solo dejan leer a usuarios logueados con mail @petroleracopsa.com.ar verificado.
+  const DOMINIO_COPSA = '@petroleracopsa.com.ar';
+  function esCuentaCopsa(u){
+    return !!(u && !u.isAnonymous && u.emailVerified && (u.email || '').toLowerCase().endsWith(DOMINIO_COPSA));
+  }
+  function crearPantallaLogin(){
+    const css = document.createElement('style');
+    css.textContent = `
+      #loginCopsa{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;
+        background:#f2f4f7;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;padding:24px;}
+      #loginCopsa .caja{background:#fff;border-radius:18px;box-shadow:0 8px 30px rgba(0,0,0,.12);padding:32px 28px;max-width:360px;width:100%;text-align:center;color:#1c2430;}
+      #loginCopsa .marca{font-size:16px;font-weight:800;color:#1e5f8c;letter-spacing:.03em;margin-bottom:14px;}
+      #loginCopsa h1{font-size:19px;margin:0 0 8px;}
+      #loginCopsa p{font-size:13.5px;color:#64748b;margin:0 0 20px;line-height:1.45;}
+      #loginCopsa button{width:100%;padding:13px 0;border-radius:12px;border:0;font-size:15px;font-weight:700;cursor:pointer;}
+      #loginCopsa .entrar{background:#1e5f8c;color:#fff;}
+      #loginCopsa .salir{background:#eef1f5;color:#1c2430;margin-top:10px;display:none;}
+      #loginCopsa .error{color:#c8562b;font-size:12.5px;margin-top:12px;min-height:16px;}`;
+    document.head.appendChild(css);
+    const ov = document.createElement('div');
+    ov.id = 'loginCopsa';
+    ov.innerHTML = `<div class="caja"><div class="marca">RUTEO COPSA</div>
+      <h1 id="lcTitulo">Ingresá con tu cuenta de Copsa</h1>
+      <p id="lcTexto">Usá tu mail @petroleracopsa.com.ar.</p>
+      <button class="entrar" id="lcEntrar">Entrar con Google</button>
+      <button class="salir" id="lcSalir">Cerrar sesión</button>
+      <div class="error" id="lcError"></div></div>`;
+    document.body.appendChild(ov);
+    return ov;
+  }
+  function loginCopsa(auth){
+    return new Promise(resolve => {
+      const ov = crearPantallaLogin();
+      const $ = id => ov.querySelector('#' + id);
+      let listo = false;
+      onAuthStateChanged(auth, u => {
+        if(listo){ if(!esCuentaCopsa(u)) location.reload(); return; } // cerró sesión en otra pestaña
+        if(esCuentaCopsa(u)){ listo = true; ov.remove(); resolve(u); return; }
+        const otraCuenta = u && !u.isAnonymous;
+        $('lcTitulo').textContent = otraCuenta ? 'Sin acceso' : 'Ingresá con tu cuenta de Copsa';
+        $('lcTexto').textContent = otraCuenta
+          ? 'La cuenta ' + (u.email || '') + ' no tiene acceso. Entrá con tu mail @petroleracopsa.com.ar.'
+          : 'Usá tu mail @petroleracopsa.com.ar.';
+        $('lcEntrar').style.display = otraCuenta ? 'none' : 'block';
+        $('lcSalir').style.display = otraCuenta ? 'block' : 'none';
+      });
+      $('lcEntrar').addEventListener('click', async () => {
+        $('lcError').textContent = '';
+        const prov = new GoogleAuthProvider();
+        prov.setCustomParameters({ hd: 'petroleracopsa.com.ar', prompt: 'select_account' });
+        try { await signInWithPopup(auth, prov); }
+        catch(e){
+          if(e.code === 'auth/popup-blocked' || e.code === 'auth/operation-not-supported-in-this-environment'){
+            try { await signInWithRedirect(auth, prov); } catch(e2){ $('lcError').textContent = 'No se pudo iniciar sesión (' + e2.code + ').'; }
+          } else if(e.code !== 'auth/popup-closed-by-user' && e.code !== 'auth/cancelled-popup-request'){
+            $('lcError').textContent = 'No se pudo iniciar sesión (' + e.code + ').';
+          }
+        }
+      });
+      $('lcSalir').addEventListener('click', () => signOut(auth));
+    });
+  }
 
   // Actualización automática (06/11): si en GitHub hay una versión nueva
   // (archivo version.txt), la pantalla se recarga sola. Como mucho una vez cada 15 min.
-  const APP_VERSION = "2026-11-06a";
+  const APP_VERSION = "2026-11-10a";
   async function revisarVersion(){
     try{
       const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
@@ -288,7 +351,7 @@
         '</div>' +
         '<div class="srow-detail"><b>Producto:</b> ' + (p.producto || '—') + '<br><b>Remito:</b> ' + (p.remito || '—') +
           (p.estado === 'problema' || p.observacion ? '<br><span class="obs"' + (p.estado === 'problema' ? '' : ' style="color:inherit"') + '><b>Observación del chofer:</b> ' + (p.observacion ? escHtml(p.observacion) : 'sin detalle') + '</span>' : '') +
-          (p.fotoRemito ? '<br><a href="' + p.fotoRemito + '" target="_blank" rel="noopener">📷 Ver foto del remito</a>' : '') +
+          (p.fotoRemito ? '<br><a href="#" data-foto="' + escHtml(p.fotoRemito) + '">📷 Ver foto del remito</a>' : '') +
         '</div>';
       row.addEventListener('click', () => { openStops[p._id] = !openStops[p._id]; render(); });
       table.appendChild(row);
@@ -455,12 +518,30 @@
       render();
     });
   }
-  datePicker.addEventListener('change', () => suscribirFecha(datePicker.value));
+  let sesionOk = false;
+  datePicker.addEventListener('change', () => { if(sesionOk) suscribirFecha(datePicker.value); });
   searchBox.addEventListener('input', () => {
     filtroTexto = searchBox.value.trim().toLowerCase();
     render();
   });
-  await authListo;
+  // Fotos de remito: se bajan con la sesión de Copsa (las reglas de Storage no las muestran sin login).
+  document.addEventListener('click', async e => {
+    const a = e.target.closest('a[data-foto]');
+    if(!a) return;
+    e.preventDefault(); e.stopPropagation();
+    const ruta = a.getAttribute('data-foto');
+    if(/^https?:/.test(ruta)){ window.open(ruta, '_blank', 'noopener'); return; }
+    const ventana = window.open('', '_blank');
+    try{
+      const blob = await getBlob(storageRef(storage, ruta));
+      const url = URL.createObjectURL(blob);
+      if(ventana) ventana.location.href = url; else window.open(url, '_blank');
+    }catch(err){ if(ventana) ventana.close(); alert('No se pudo abrir la foto.'); console.error(err); }
+  }, true);
+
+  await loginCopsa(auth);
+  sesionOk = true;
+  document.getElementById('btnSalir').addEventListener('click', () => signOut(auth));
   suscribirFecha(datePicker.value);
 
   // Mantener el monitor en el día de hoy: si la pestaña quedó abierta de otro día,

@@ -10,6 +10,5 @@ export const firebaseConfig = {
   appId: "1:1098383050561:web:9443a8eb35b570e4bb43c0",
 };
 
-// PIN que van a usar los choferes para poder entrar y marcar entregas.
-// Lo podés cambiar cuando quieras, no hace falta tocar nada más del código.
-export const PIN_CHOFER = "2026";
+// (10/11) Ya no hay PIN: el Panel general entra con la cuenta de Google de Copsa
+// y cada chofer con su link con código secreto.

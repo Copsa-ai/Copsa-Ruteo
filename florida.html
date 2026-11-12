@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Ruteo Copsa — La Florida</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<style>
+  :root{
+    --bg:#f2f4f7;
+    --ink:#1c2430;
+    --ink-soft:#64748b;
+    --card:#ffffff;
+    --line:#e6e9ef;
+    --brand:#1e5f8c;
+    --ok:#1e9e6b;
+    --ok-bg:#e6f7ef;
+    --warn:#c8562b;
+    --warn-bg:#fdece3;
+    --pending:#94a3b8;
+    --pending-bg:#eef1f5;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0;
+    background:var(--bg);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    color:var(--ink);
+  }
+  .view{display:none;flex-direction:column;min-height:100vh;}
+  .view.active{display:flex;}
+
+  /* Mensajes (antes: PIN) */
+  #view-msg{align-items:center;justify-content:center;padding:0 32px;text-align:center;gap:22px;}
+  #view-msg .brand{font-size:16px;font-weight:700;color:var(--brand);letter-spacing:.02em;}
+  #view-msg h1{font-size:20px;margin:0;}
+  #view-msg p{font-size:13.5px;color:var(--ink-soft);margin:0;}
+  .pin-dots{display:flex;gap:14px;margin:6px 0;}
+  .pin-dots span{width:14px;height:14px;border-radius:50%;border:2px solid var(--ink-soft);transition:all .15s;}
+  .pin-dots span.filled{background:var(--brand);border-color:var(--brand);}
+  .keypad{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;width:100%;max-width:300px;}
+  .keypad button{padding:18px 0;font-size:20px;font-weight:600;background:var(--pending-bg);border:none;border-radius:14px;color:var(--ink);}
+  .keypad button.empty{background:transparent;}
+  .keypad button.back{font-size:16px;color:var(--ink-soft);}
+  .pin-error{font-size:12.5px;color:var(--warn);height:16px;}
+
+  /* Rutas */
+  #view-route{padding:24px 20px 20px;}
+  .topline{font-size:12.5px;color:var(--ink-soft);margin-bottom:2px;}
+  #view-route h1{font-size:20px;margin:0 0 18px;}
+  .route-card{display:flex;align-items:center;justify-content:space-between;padding:16px 18px;border:1px solid var(--line);border-radius:14px;margin-bottom:10px;}
+  .route-card:active{background:var(--pending-bg);}
+  .route-card .rt-name{font-weight:600;font-size:15px;}
+  .route-card .rt-meta{font-size:12.5px;color:var(--ink-soft);margin-top:2px;}
+  .route-card .chev{color:var(--ink-soft);font-size:18px;}
+  .sinrutas{font-size:13.5px;color:var(--ink-soft);text-align:center;padding:30px 0;}
+
+  /* Paradas */
+  .header{padding:18px 18px 14px;border-bottom:1px solid var(--line);flex:0 0 auto;background:var(--card);}
+  .header-top{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+  .back-btn{font-size:22px;color:var(--brand);line-height:1;}
+  .header h1{font-size:17px;margin:0;flex:1;}
+  .progress-row{display:flex;align-items:center;gap:10px;}
+  .progress-bar{flex:1;height:6px;background:var(--pending-bg);border-radius:99px;overflow:hidden;}
+  .progress-fill{height:100%;background:var(--ok);border-radius:99px;transition:width .3s;}
+  .progress-text{font-size:12px;color:var(--ink-soft);white-space:nowrap;}
+  .stops{flex:1;overflow-y:auto;padding:8px 14px 14px;-webkit-overflow-scrolling:touch;}
+  .stop{display:flex;align-items:center;gap:12px;padding:14px 10px;border-bottom:1px solid var(--line);}
+  .stop-num{width:26px;height:26px;border-radius:50%;background:var(--pending-bg);color:var(--ink-soft);font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex:0 0 auto;}
+  .stop.done .stop-num{background:var(--ok-bg);color:var(--ok);}
+  .stop-body{flex:1;min-width:0;}
+  .stop-name{font-size:14.5px;font-weight:600;}
+  .stop-addr{font-size:12.5px;color:var(--ink-soft);margin-top:1px;}
+  .stop-horario{font-size:11.5px;color:var(--ink-soft);margin-top:2px;}
+  .badge{font-size:11px;font-weight:700;padding:4px 9px;border-radius:99px;white-space:nowrap;flex:0 0 auto;}
+  .badge.pendiente{background:var(--pending-bg);color:var(--ink-soft);}
+  .badge.entregado{background:var(--ok-bg);color:var(--ok);}
+  .badge.problema{background:var(--warn-bg);color:var(--warn);}
+
+  .modal-backdrop{position:fixed;inset:0;background:rgba(11,15,20,.4);display:none;align-items:flex-end;z-index:5;}
+  .modal-backdrop.active{display:flex;}
+  .modal{background:var(--card);width:100%;border-radius:22px 22px 0 0;padding:22px 20px 30px;}
+  .modal .m-client{font-size:12.5px;color:var(--ink-soft);margin-bottom:2px;}
+  .modal h2{font-size:18px;margin:0 0 4px;}
+  .modal .m-addr{font-size:13.5px;color:var(--ink-soft);margin-bottom:18px;}
+  .modal button{width:100%;padding:15px 0;border-radius:14px;border:none;font-size:15px;font-weight:700;margin-bottom:9px;}
+  .btn-ok{background:var(--ok);color:#fff;}
+  .btn-warn{background:var(--warn-bg);color:var(--warn);}
+  .btn-cancel{background:transparent;color:var(--ink-soft);font-weight:600;margin-bottom:0;}
+
+  .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(10px);background:var(--ink);color:#fff;font-size:13px;font-weight:600;padding:10px 18px;border-radius:99px;opacity:0;transition:all .25s;pointer-events:none;z-index:20;}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+  .m-foto{margin:4px 0 16px;}
+  .m-obs{display:block;margin:0 0 12px;}
+  .m-obs.visible{display:block;}
+  .m-obs label{display:block;font-size:13px;font-weight:700;color:var(--ink-soft);margin-bottom:6px;}
+  .m-obs.obligatoria label{color:var(--warn);}
+  .m-obs textarea{width:100%;box-sizing:border-box;min-height:84px;padding:10px 12px;border:1.5px solid var(--line);border-radius:12px;font:inherit;font-size:14px;resize:vertical;}
+  .m-obs textarea.error{border-color:var(--warn);}
+  .m-obs .obs-hint{font-size:12px;color:var(--warn);margin-top:4px;display:none;}
+  .m-obs textarea.error + .obs-hint{display:block;}
+  .stop-obs{font-size:12px;color:var(--warn);margin-top:3px;}
+  .stop-obs.nota{color:var(--ink-soft);}
+  .foto-label{display:block;text-align:center;padding:12px 0;border:1.5px dashed var(--line);border-radius:12px;font-size:13.5px;color:var(--ink-soft);font-weight:600;}
+  .foto-label:active{background:var(--pending-bg);}
+  #fotoPreview{display:none;max-width:100%;border-radius:10px;margin-top:10px;}
+  #btnInstalar{display:none;position:fixed;right:12px;bottom:12px;z-index:50;background:var(--brand);color:#fff;border:0;border-radius:999px;padding:10px 16px;font-size:13.5px;font-weight:600;box-shadow:0 4px 14px rgba(0,0,0,.18);}
+</style>
+<meta name="theme-color" content="#1e5f8c">
+<meta name="robots" content="noindex">
+<script>
+  // Recuerda el link del depósito: si se abre florida.html sin código, usa el último.
+  (function(){
+    try{
+      var t = (new URLSearchParams(location.search).get('t') || '').trim();
+      if(t) localStorage.setItem('florida_token', t);
+      else { var g = localStorage.getItem('florida_token'); if(g) location.replace('florida.html?t=' + encodeURIComponent(g)); }
+    }catch(e){}
+  })();
+</script>
+</head>
+<body>
+
+<div class="view active" id="view-msg">
+  <div class="brand">RUTEO COPSA</div>
+  <h1 id="msgTitulo">Cargando…</h1>
+  <p id="msgTexto"></p>
+</div>
+
+<div class="view" id="view-route">
+  <div class="topline" id="fechaHoy"></div>
+  <h1>La Florida (S2) — viajes con paradas pendientes</h1>
+  <div id="routeList"></div>
+  <div class="sinrutas" id="sinRutas" style="display:none;">No queda ningún viaje con paradas pendientes 🎉</div>
+</div>
+
+<div class="view" id="view-stops">
+  <div class="header">
+    <div class="header-top">
+      <div class="back-btn" id="backToRoutes">‹</div>
+      <h1 id="routeTitle">—</h1>
+    </div>
+    <div class="progress-row">
+      <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+      <div class="progress-text" id="progressText">0/0</div>
+    </div>
+  </div>
+  <div class="stops" id="stopsList"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<div class="modal-backdrop" id="modalBackdrop">
+  <div class="modal">
+    <div class="m-client">Parada</div>
+    <h2 id="mName"></h2>
+    <div class="m-addr" id="mAddr"></div>
+    <div class="m-foto" style="display:none">
+      <label class="foto-label" id="fotoLabel">📷 Adjuntar foto del remito (opcional)</label>
+      <input type="file" accept="image/*" capture="environment" id="fotoInput" style="display:none;">
+      <img id="fotoPreview" alt="">
+    </div>
+    <div class="m-obs" id="mObs">
+      <label for="obsInput" id="obsLabel">Observaciones (opcional)</label>
+      <textarea id="obsInput" maxlength="500" placeholder="Ej.: retiramos 3 IBC de 5, faltó mercadería, cliente cerrado…"></textarea>
+      <div class="obs-hint">Para reportar un problema, escribí qué pasó.</div>
+    </div>
+    <button class="btn-ok" id="btnEntregado">Marcar entregado</button>
+    <button class="btn-warn" id="btnProblema">Reportar problema</button>
+    <button class="btn-cancel" id="btnCancel">Cancelar</button>
+  </div>
+</div>
+
+<script type="module">
+  // Panel La Florida (12/11): solo las paradas de la sucursal del depósito (S2).
+  // Se entra con link con código secreto (?t=CÓDIGO), sin cuenta de Google.
+  // Las reglas de Firestore solo dejan leer y marcar paradas con codSucuremp = sucursal del acceso.
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+  import {
+    getFirestore, collectionGroup, query, where, onSnapshot, doc, getDoc, setDoc, updateDoc, serverTimestamp
+  } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+  import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
+  import { firebaseConfig } from "./firebase-config.js";
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+  const auth = getAuth(app);
+
+  // Actualización automática (06/11): si en GitHub hay una versión nueva
+  // (archivo version.txt), la pantalla se recarga sola. Como mucho una vez cada 15 min.
+  const APP_VERSION = "2026-11-10a";
+  async function revisarVersion(){
+    try{
+      const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
+      if(!r.ok) return;
+      const v = (await r.text()).trim();
+      if(!v || v === APP_VERSION) return;
+      let ultimo = 0;
+      try { ultimo = Number(sessionStorage.getItem('ruteo_recarga') || 0); } catch(e) {}
+      if(Date.now() - ultimo < 15 * 60000) return;
+      try { sessionStorage.setItem('ruteo_recarga', String(Date.now())); } catch(e) {}
+      location.reload();
+    } catch(e) {}
+  }
+  setInterval(revisarVersion, 10 * 60000);
+  document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'visible') revisarVersion(); });
+  function hoyLocal(){
+    const d = new Date();
+    const tz = d.getTimezoneOffset() * 60000;
+    return new Date(d - tz).toISOString().slice(0, 10);
+  }
+  function fechaMenosDias(dias){
+    const d = new Date();
+    d.setDate(d.getDate() - dias);
+    const tz = d.getTimezoneOffset() * 60000;
+    return new Date(d - tz).toISOString().slice(0, 10);
+  }
+  const FECHA_HOY = hoyLocal();
+  const ESTADOS_COMPLETOS = ['entregado', 'problema'];
+  const VENTANA_DIAS = 30; // viajes de días anteriores con paradas sin marcar
+
+  const views = {
+    msg: document.getElementById('view-msg'),
+    route: document.getElementById('view-route'),
+    stops: document.getElementById('view-stops'),
+  };
+  function showView(name){ Object.keys(views).forEach(k => views[k].classList.toggle('active', k === name)); }
+  function mostrarMensaje(titulo, texto){
+    document.getElementById('msgTitulo').textContent = titulo;
+    document.getElementById('msgTexto').textContent = texto || '';
+    showView('msg');
+  }
+
+  let rutasActuales = {}; // rutaId -> {meta, paradas}
+  let rutaAbierta = null;
+  const metaPedida = {};
+  const modoChofer = false, modoDirecto = false;
+
+  const token = (new URLSearchParams(location.search).get('t') || '').trim();
+  if(!token) mostrarMensaje('Falta el link', 'Abrí el link del depósito que te pasó Copsa.');
+  else iniciarDeposito(token);
+
+  async function iniciarDeposito(token){
+    let sucursal;
+    try{
+      if(!auth.currentUser) await signInAnonymously(auth);
+      await setDoc(doc(db, 'sesiones', auth.currentUser.uid), { token, creado: serverTimestamp() });
+      const acc = await getDoc(doc(db, 'accesos', token));
+      if(!acc.exists() || !acc.data().sucursal) throw new Error('sin acceso');
+      sucursal = acc.data().sucursal;
+    }catch(e){
+      console.error(e);
+      try { localStorage.removeItem('florida_token'); } catch(_) {}
+      mostrarMensaje('Link no válido', 'Este link ya no está activo. Pedile a Copsa el link nuevo.');
+      return;
+    }
+    document.getElementById('fechaHoy').textContent = 'Hoy y pendientes de los últimos ' + VENTANA_DIAS + ' días · se actualiza en vivo';
+    showView('route');
+    const q = query(collectionGroup(db, 'paradas'),
+      where('codSucuremp', '==', sucursal),
+      where('fecha', '>=', fechaMenosDias(VENTANA_DIAS)));
+    onSnapshot(q, snap => {
+      const nuevas = {};
+      snap.forEach(d => {
+        const rid = d.ref.parent.parent.id;
+        const p = d.data();
+        if(!nuevas[rid]) nuevas[rid] = { meta: (rutasActuales[rid] && rutasActuales[rid].meta) || { fecha: p.fecha, nroViaje: p.nroViaje }, paradas: {} };
+        nuevas[rid].paradas[d.id] = p;
+      });
+      // Hoy: todos los viajes; días anteriores: solo si les queda algo sin marcar.
+      Object.keys(nuevas).forEach(rid => {
+        const r = nuevas[rid];
+        const abierto = r.meta.fecha === FECHA_HOY || Object.values(r.paradas).some(p => !ESTADOS_COMPLETOS.includes(p.estado));
+        if(!abierto && rid !== rutaAbierta) delete nuevas[rid];
+      });
+      rutasActuales = nuevas;
+      Object.keys(rutasActuales).forEach(pedirMeta);
+      renderRouteList();
+      if(rutaAbierta) renderStops();
+    }, err => {
+      console.error(err);
+      mostrarMensaje('Link no válido', 'Este link ya no está activo. Pedile a Copsa el link nuevo.');
+    });
+  }
+
+  // Encabezado del viaje (chofer, patente), una vez por viaje.
+  async function pedirMeta(rid){
+    if(metaPedida[rid]) return;
+    metaPedida[rid] = true;
+    try{
+      const s = await getDoc(doc(db, 'rutas', rid));
+      if(s.exists() && rutasActuales[rid]){ rutasActuales[rid].meta = s.data(); renderRouteList(); }
+    }catch(e){ console.error('Encabezado del viaje', rid, e); }
+  }
+
+  function rutaTienePendientes(r){
+    const paradas = Object.values(r.paradas || {});
+    if(paradas.length === 0) return true; // todavía no cargó las paradas, se muestra por si acaso
+    return paradas.some(p => !ESTADOS_COMPLETOS.includes(p.estado));
+  }
+
+  function renderRouteList(){
+    const list = document.getElementById('routeList');
+    const ids = Object.keys(rutasActuales)
+      .sort((a,b) => {
+        const porFecha = (rutasActuales[b].meta.fecha || "").localeCompare(rutasActuales[a].meta.fecha || "");
+        if(porFecha !== 0) return porFecha; // más reciente primero
+        return (rutasActuales[a].meta.nroViaje || "").localeCompare(rutasActuales[b].meta.nroViaje || "", undefined, {numeric:true});
+      });
+
+    document.getElementById('sinRutas').style.display = ids.length === 0 ? 'block' : 'none';
+    list.innerHTML = "";
+    ids.forEach(id => {
+      const meta = rutasActuales[id].meta;
+      const card = document.createElement('div');
+      card.className = 'route-card';
+      card.innerHTML =
+        '<div><div class="rt-name">' + (meta.fecha || '') + ' · Viaje ' + (meta.nroViaje || '?') + '</div>' +
+        '<div class="rt-meta">' + (meta.vehiculo || '—') + ' · ' + (meta.chofer || 'Sin asignar') + '</div></div>' +
+        '<div class="chev">›</div>';
+      card.addEventListener('click', () => abrirRuta(id));
+      list.appendChild(card);
+    });
+  }
+
+  function abrirRuta(rutaId){
+    rutaAbierta = rutaId;
+    document.getElementById('routeTitle').textContent = 'Viaje ' + (rutasActuales[rutaId].meta.nroViaje || '?');
+    showView('stops');
+    renderStops();
+  }
+
+  document.getElementById('backToRoutes').addEventListener('click', () => {
+    rutaAbierta = null;
+    renderRouteList();
+    showView('route');
+  });
+
+  function labelFor(estado, tipo){
+    if(estado === 'entregado'){
+      if(tipo === 'retiro') return 'Retirado';
+      if(tipo === 'devolucion') return 'Devolución OK';
+      return 'Entregado';
+    }
+    if(estado === 'problema') return 'Con problema';
+    return 'Pendiente';
+  }
+
+  function renderStops(){
+    if(!rutaAbierta || !rutasActuales[rutaAbierta]) return;
+    const paradas = Object.entries(rutasActuales[rutaAbierta].paradas)
+      .map(([id, p]) => ({ id, rutaId: rutaAbierta, ...p }))
+      .sort((a,b) => (a.orden ?? 0) - (b.orden ?? 0));
+    pintarListaParadas(paradas, null);
+  }
+
+  // Dibuja la lista de paradas (se usa tanto para un viaje puntual como
+  // para la lista combinada de todos los viajes de un chofer).
+  // subtituloExtra(p): función opcional que devuelve texto extra a mostrar
+  // debajo del horario (por ej. de qué viaje viene esa parada).
+  function pintarListaParadas(paradas, subtituloExtra){
+    const list = document.getElementById('stopsList');
+    list.innerHTML = "";
+    let done = 0;
+    paradas.forEach((p, i) => {
+      if(p.estado === 'entregado' || p.estado === 'problema') done++;
+      const el = document.createElement('div');
+      el.className = 'stop' + (p.estado === 'entregado' ? ' done' : '');
+      const extra = subtituloExtra ? subtituloExtra(p) : (p.horario || '');
+      el.innerHTML =
+        '<div class="stop-num">' + (i+1) + '</div>' +
+        '<div class="stop-body">' +
+          '<div class="stop-name">' + p.cliente + '</div>' +
+          '<div class="stop-addr">' + p.direccion + '</div>' +
+          (extra ? '<div class="stop-horario">' + extra + '</div>' : '') +
+          (p.observacion && (p.estado === 'problema' || p.estado === 'entregado') ? (p.estado === 'problema' ? '<div class="stop-obs">⚠ ' : '<div class="stop-obs nota">📝 ') + escHtml(p.observacion) + '</div>' : '') +
+        '</div>' +
+        '<div class="badge ' + (p.estado || 'pendiente') + '">' + labelFor(p.estado, p.tipo) + '</div>';
+      el.addEventListener('click', () => abrirModal(p));
+      list.appendChild(el);
+    });
+    document.getElementById('progressText').textContent = done + '/' + paradas.length;
+    document.getElementById('progressFill').style.width = (paradas.length ? 100*done/paradas.length : 0) + '%';
+  }
+
+  // ---------- Modal marcar entrega ----------
+  const backdrop = document.getElementById('modalBackdrop');
+  let paradaActual = null;
+  let fotoSeleccionada = null;
+
+  const fotoInput = document.getElementById('fotoInput');
+  const fotoPreview = document.getElementById('fotoPreview');
+  const fotoLabel = document.getElementById('fotoLabel');
+
+  fotoLabel.addEventListener('click', () => fotoInput.click());
+  fotoInput.addEventListener('change', () => {
+    const file = fotoInput.files[0];
+    if(!file) return;
+    fotoSeleccionada = file;
+    fotoPreview.src = URL.createObjectURL(file);
+    fotoPreview.style.display = 'block';
+    fotoLabel.textContent = '📷 Foto lista — tocá para cambiarla';
+  });
+
+  const mObs = document.getElementById('mObs');
+  const obsInput = document.getElementById('obsInput');
+  const obsLabel = document.getElementById('obsLabel');
+  const btnProblema = document.getElementById('btnProblema');
+  function escHtml(s){ return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  obsInput.addEventListener('input', () => obsInput.classList.remove('error'));
+
+  function textoBotonOk(tipo){
+    if(tipo === 'retiro') return 'Producto retirado';
+    if(tipo === 'devolucion') return 'Devolución OK';
+    return 'Marcar entregado';
+  }
+
+  function abrirModal(p){
+    paradaActual = p;
+    fotoSeleccionada = null;
+    fotoInput.value = '';
+    fotoPreview.style.display = 'none';
+    fotoPreview.src = '';
+    fotoLabel.textContent = '📷 Adjuntar foto del remito (opcional)';
+    document.getElementById('mName').textContent = p.cliente;
+    document.getElementById('mAddr').textContent = p.direccion;
+    document.getElementById('btnEntregado').textContent = textoBotonOk(p.tipo);
+    obsInput.value = p.observacion || '';
+    obsInput.classList.remove('error');
+    mObs.classList.remove('obligatoria');
+    obsLabel.textContent = 'Observaciones (opcional)';
+    btnProblema.textContent = 'Reportar problema';
+    backdrop.classList.add('active');
+  }
+  function cerrarModal(){ backdrop.classList.remove('active'); paradaActual = null; }
+  document.getElementById('btnCancel').addEventListener('click', cerrarModal);
+  backdrop.addEventListener('click', e => { if(e.target === backdrop) cerrarModal(); });
+
+  async function marcar(estado){
+    if(!paradaActual) return;
+    const rutaId = paradaActual.rutaId || rutaAbierta;
+    if(!rutaId) return;
+    const ref = doc(db, 'rutas', rutaId, 'paradas', paradaActual.id);
+    // avisoEnviado = false: si el chofer cambia el estado (ej. de problema a
+    // entregado), sale un aviso nuevo con el estado actualizado.
+    const datos = { estado, horaActualizacion: serverTimestamp(), avisoEnviado: false,
+                    observacion: obsInput.value.trim() };
+    let fotoFallo = false;
+
+    // La foto es opcional: si Storage todavía no está activado (o falla la
+    // subida por cualquier motivo), no dejamos que eso bloquee marcar la
+    // entrega — seguimos igual, solo sin la foto.
+    if(false){
+      try{
+        const ext = (fotoSeleccionada.name.split('.').pop() || 'jpg').toLowerCase();
+        const path = 'remitos/' + rutaId + '/' + paradaActual.id + '/' + Date.now() + '.' + ext;
+        const sRef = storageRef(storage, path);
+        await uploadBytes(sRef, fotoSeleccionada, { contentType: fotoSeleccionada.type || 'image/jpeg' });
+        datos.fotoRemito = path; // ruta en Storage: solo se ve con cuenta de Copsa (10/11)
+      }catch(err){
+        fotoFallo = true;
+        console.error('No se pudo subir la foto', err);
+      }
+    }
+
+    try{
+      await updateDoc(ref, datos);
+      if(fotoFallo){
+        mostrarToast('Entrega marcada — la foto no se pudo subir');
+      } else if(estado === 'entregado'){
+        mostrarToast(textoBotonOk(paradaActual.tipo) + ' ✓');
+      } else {
+        mostrarToast('Reportado como problema');
+      }
+    }catch(err){
+      mostrarToast('No se pudo guardar, probá de nuevo');
+      console.error(err);
+    }
+    cerrarModal();
+  }
+  document.getElementById('btnEntregado').addEventListener('click', () => marcar('entregado'));
+  // La observación es opcional para entregas/retiros (20/10) y obligatoria
+  // para reportar un problema: si está vacía, se pide antes de enviar.
+  btnProblema.addEventListener('click', () => {
+    if(!obsInput.value.trim()){
+      mObs.classList.add('obligatoria');
+      obsLabel.textContent = '¿Qué pasó? (obligatorio)';
+      btnProblema.textContent = 'Enviar problema';
+      obsInput.classList.add('error');
+      obsInput.focus();
+      return;
+    }
+    marcar('problema');
+  });
+
+  let toastTimer;
+  function mostrarToast(msg){
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove('show'), 1800);
+  }
+
+</script>
+
+</body>
+</html>
